@@ -17,7 +17,9 @@ export const DEFAULTS = {
   sphereStir: 0.05, // how much spinning the card sphere drags the water around it (0 = off)
   granules: 0.75, // darker pigment specks that appear as dragged colour dries back (0 = off)
   rightBoost: 0.4, // extra pigment on the rose side
-  bottomFade: 0.2, // how much of the bottom fades into the page
+  fadeStart: 0.3, // where the fade begins, as a share of the hero height above its bottom edge
+  fadeTail: 0.35, // how far the water reaches below the hero, as a share of the gap to "Selected work"
+  fadeRagged: 0.03, // how much the fade's end wobbles across the page (0 = a straight line)
   detail: 1, // calculation resolution: higher = smoother edges, more GPU work
   leftMain: '#5fcca6',
   leftLight: '#cfeadf',

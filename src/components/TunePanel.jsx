@@ -15,7 +15,11 @@ const SLIDERS = [
     ['trailDark', 'Trail darkness', 0, 0.8, 0.01],
     ['wetEdges', 'Wet edges', 0, 30, 0.5],
     ['rightBoost', 'Rose side boost', 0, 0.4, 0.01],
-    ['bottomFade', 'Bottom fade', 0, 0.4, 0.01],
+  ]],
+  ['Fade into the page', [
+    ['fadeStart', 'Fade starts (share of hero)', 0, 0.6, 0.01],
+    ['fadeTail', 'Reaches below hero (share of gap)', 0, 1, 0.01],
+    ['fadeRagged', 'Ragged edge', 0, 0.12, 0.005],
   ]],
   ['Extras', [
     ['wisps', 'Wisps (tendrils)', 0, 3, 0.05],

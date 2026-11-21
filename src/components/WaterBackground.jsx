@@ -138,7 +138,8 @@ const compFrag = /* glsl */ `
   uniform float uTime;
   uniform float uTrailDark;
   uniform float uEdges;
-  uniform float uBottomFade;
+  uniform float uFadeStart; // where the fade begins, in 0..1 of this canvas from the bottom
+  uniform float uRagged;
   uniform float uGranules;
   ${noiseGLSL}
   void main() {
@@ -167,8 +168,13 @@ const compFrag = /* glsl */ `
     col *= 1.0 - gran * 0.12 * amount;
     col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.018;
 
-    // Only the last strip fades to paper, so the hero runs straight into the page.
-    col = mix(uPaper, col, smoothstep(0.0, max(uBottomFade, 0.001), vUv.y));
+    // Fade into the page below the hero: begins above the hero's bottom edge, ends at the bottom of
+    // the tail, eases out so there is no visible stop, and wobbles like watercolour bleeding.
+    float rag = (noise(vec2(vUv.x * 5.0, uTime * 0.04)) - 0.5) * 2.0 * uRagged
+              + (noise(vec2(vUv.x * 17.0 + 3.0, uTime * 0.07)) - 0.5) * uRagged;
+    float fade = smoothstep(0.0, max(uFadeStart, 0.001), vUv.y + rag);
+    fade = fade * fade * (3.0 - 2.0 * fade);
+    col = mix(uPaper, col, fade);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -202,7 +208,7 @@ function applySettings(res) {
   setHex(d.uR3.value, params.rightDeep);
   c.uTrailDark.value = params.trailDark;
   c.uEdges.value = params.wetEdges;
-  c.uBottomFade.value = params.bottomFade;
+  c.uRagged.value = params.fadeRagged;
   c.uGranules.value = params.granules;
 }
 
@@ -256,7 +262,8 @@ function WaterPass({ reduced, pointer, wrap }) {
       uTime: { value: 0 },
       uTrailDark: { value: 0.22 },
       uEdges: { value: 10 },
-      uBottomFade: { value: 0.14 },
+      uFadeStart: { value: 0.2 },
+      uRagged: { value: 0.03 },
       uGranules: { value: 0 },
     });
     const sceneFor = (m) => {
@@ -363,6 +370,18 @@ function WaterPass({ reduced, pointer, wrap }) {
       slot.set(k.x, k.y, k.s * fade * frames, k.r);
     });
     res.velMat.uniforms.uTime.value = state.clock.elapsedTime;
+
+    // The canvas runs past the hero by the tail, so work out where the fade starts on it.
+    const hero = wrap.current?.parentElement;
+    if (hero) {
+      if (hero.style.getPropertyValue('--water-tail') !== String(params.fadeTail)) {
+        hero.style.setProperty('--water-tail', String(params.fadeTail));
+      }
+      const heroH = hero.clientHeight;
+      const total = wrap.current.clientHeight || heroH;
+      const tail = total - heroH;
+      res.compMat.uniforms.uFadeStart.value = (tail + params.fadeStart * heroH) / total;
+    }
 
     // Read the card sphere's spin (src/stir.js) and turn it into a current around it.
     const box = wrap.current?.getBoundingClientRect();
