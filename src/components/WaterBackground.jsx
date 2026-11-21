@@ -4,6 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
 import { useInView } from '../hooks.js';
 import { params } from '../tune.js';
+import { sphereStir } from '../stir.js';
 
 // How it works, in three layers:
 // 1. ShaderGradient draws the slow, flowing water shapes. Its three colours are set to pure red,
@@ -48,6 +49,8 @@ const velFrag = /* glsl */ `
   uniform float uWisps;
   uniform float uTime;
   uniform vec4 uVort[8];
+  uniform vec4 uSphere; // centre x, y, radius (all in 0..1 of the hero), unused
+  uniform vec2 uSphereVel;
   ${noiseGLSL}
 
   void main() {
@@ -57,6 +60,11 @@ const velFrag = /* glsl */ `
     d.x *= uAspect;
     float g = exp(-dot(d, d) / (uRadius * uRadius));
     vec2 v = prev.xy * uDecay + uVel * g;
+
+    // The card sphere's spin drags the water around it, and keeps it coasting as the spin slows.
+    vec2 sq = vUv - uSphere.xy;
+    sq.x *= uAspect;
+    v += uSphereVel * exp(-dot(sq, sq) / (uSphere.z * uSphere.z * 1.6));
 
     // Wisps: where the water is moving, gently turn its direction by an amount that varies
     // smoothly across the screen. Turning never adds speed, so it can't run away, and the
@@ -131,6 +139,7 @@ const compFrag = /* glsl */ `
   uniform float uTrailDark;
   uniform float uEdges;
   uniform float uBottomFade;
+  uniform float uGranules;
   ${noiseGLSL}
   void main() {
     vec4 d = texture2D(uDye, vUv);
@@ -146,6 +155,12 @@ const compFrag = /* glsl */ `
     float ay = texture2D(uDye, vUv + vec2(0.0, px.y)).a;
     float edge = clamp(length(vec2(ax - d.a, ay - d.a)) * uEdges, 0.0, 1.0);
     col = mix(col, col * 0.76, edge * amount);
+
+    // Drying granules: as a dragged patch dries back (its wetness half gone), darker specks of
+    // pigment settle into the paper's tooth there.
+    float drying = clamp(wet * (1.0 - wet) * 4.0, 0.0, 1.0);
+    float speck = smoothstep(0.62, 0.8, noise(gl_FragCoord.xy * 0.45) * 0.6 + noise(gl_FragCoord.xy * 0.13 + 5.0) * 0.4);
+    col = mix(col, d.rgb * 0.62, speck * drying * uGranules * 0.85);
 
     // Granulation inside the pigment, plus a little paper tooth everywhere.
     float gran = noise(gl_FragCoord.xy * 0.3) * noise(gl_FragCoord.xy * 0.07 + 3.0);
@@ -188,9 +203,10 @@ function applySettings(res) {
   c.uTrailDark.value = params.trailDark;
   c.uEdges.value = params.wetEdges;
   c.uBottomFade.value = params.bottomFade;
+  c.uGranules.value = params.granules;
 }
 
-function WaterPass({ reduced, pointer }) {
+function WaterPass({ reduced, pointer, wrap }) {
   const { gl, scene, camera, size } = useThree();
   const stir = useRef({ x: 0.3, y: 0.5, px: 0.3, py: 0.5, t: 0 });
   const first = useRef(true);
@@ -213,6 +229,8 @@ function WaterPass({ reduced, pointer }) {
       uWisps: { value: 0 },
       uTime: { value: 0 },
       uVort: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },
+      uSphere: { value: new THREE.Vector4(0.5, 0.5, 0.2, 0) },
+      uSphereVel: { value: new THREE.Vector2() },
     });
     const dyeMat = mat(dyeFrag, {
       uDye: { value: null },
@@ -239,6 +257,7 @@ function WaterPass({ reduced, pointer }) {
       uTrailDark: { value: 0.22 },
       uEdges: { value: 10 },
       uBottomFade: { value: 0.14 },
+      uGranules: { value: 0 },
     });
     const sceneFor = (m) => {
       const s = new THREE.Scene();
@@ -344,6 +363,26 @@ function WaterPass({ reduced, pointer }) {
       slot.set(k.x, k.y, k.s * fade * frames, k.r);
     });
     res.velMat.uniforms.uTime.value = state.clock.elapsedTime;
+
+    // Read the card sphere's spin (src/stir.js) and turn it into a current around it.
+    const box = wrap.current?.getBoundingClientRect();
+    const sv = res.velMat.uniforms.uSphereVel.value;
+    if (box && sphereStir.live && !reduced && params.sphereStir > 0) {
+      res.velMat.uniforms.uSphere.value.set(
+        (sphereStir.x - box.left) / box.width,
+        1 - (sphereStir.y - box.top) / box.height,
+        Math.max(0.02, sphereStir.radius / box.height),
+        0,
+      );
+      // Spin is per frame already; scale it into the same units as the cursor's stir.
+      const k = params.sphereStir * 0.35;
+      sv.set(
+        THREE.MathUtils.clamp((sphereStir.dx / box.width) * k, -0.02, 0.02),
+        THREE.MathUtils.clamp((-sphereStir.dy / box.height) * k, -0.02, 0.02),
+      );
+    } else {
+      sv.set(0, 0);
+    }
 
     // 2. Stir the velocity field.
     res.velMat.uniforms.uPrev.value = res.vel[0].texture;
@@ -454,7 +493,7 @@ export default function WaterBackground({ reduced }) {
       <ShaderGradientCanvas pointerEvents="none" pixelDensity={1} fov={45} lazyLoad={false}>
         {gradient}
         <Pause running={inView} />
-        <WaterPass reduced={reduced} pointer={pointer} />
+        <WaterPass reduced={reduced} pointer={pointer} wrap={wrap} />
       </ShaderGradientCanvas>
     </div>
   );

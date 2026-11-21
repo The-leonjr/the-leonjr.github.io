@@ -17,9 +17,11 @@ const SLIDERS = [
     ['rightBoost', 'Rose side boost', 0, 0.4, 0.01],
     ['bottomFade', 'Bottom fade', 0, 0.4, 0.01],
   ]],
-  ['Extras (start at 0)', [
+  ['Extras', [
     ['wisps', 'Wisps (tendrils)', 0, 3, 0.05],
     ['swirls', 'Swirls (wake curls)', 0, 3, 0.05],
+    ['sphereStir', 'Sphere stirs water', 0, 3, 0.05],
+    ['granules', 'Drying granules', 0, 1.5, 0.05],
   ]],
   ['Quality', [
     ['detail', 'Detail (higher = smoother, heavier)', 0.25, 1, 0.05],

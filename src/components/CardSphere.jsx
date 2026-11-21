@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { byId, sphereOrder } from '../data/projects.js';
 import { createAsciiOrb } from '../three/asciiOrb.js';
 import { useInView } from '../hooks.js';
+import { sphereStir } from '../stir.js';
 
 // Where each card sits on the sphere (before any rotation). The first three face the visitor.
 const POINTS = [
@@ -75,7 +76,7 @@ async function makeCardTexture(project) {
   return tex;
 }
 
-function Sphere({ reduced, active, drag, hovered, setHovered }) {
+function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
   const navigate = useNavigate();
   const { camera, size } = useThree();
   const group = useRef();
@@ -127,7 +128,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
   }, [camera, size, R, cardW, cardH, mobile, orb]);
 
   const cards = useRef([]);
-  const state = useRef({ yaw: 0, pitch: -0.08 });
+  const state = useRef({ yaw: 0, pitch: -0.08, lastYaw: 0, lastPitch: 0 });
   const born = useRef([]);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const euler = useMemo(() => new THREE.Euler(), []);
@@ -161,6 +162,23 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     }
 
     group.current.rotation.set(st.pitch, st.yaw, 0, 'XYZ');
+
+    // Tell the water where the sphere is and how fast its surface is moving, so it can drag the
+    // water around with it (see src/stir.js).
+    const box = wrap.current?.getBoundingClientRect();
+    if (box) {
+      const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const radiusPx = (R / (camera.position.z * half)) * (size.height / 2);
+      const shift = camera.view?.enabled ? -camera.view.offsetX : 0;
+      sphereStir.x = box.left + size.width / 2 + shift;
+      sphereStir.y = box.top + size.height / 2;
+      sphereStir.radius = radiusPx;
+      sphereStir.dx = (st.yaw - st.lastYaw) * radiusPx;
+      sphereStir.dy = (st.pitch - st.lastPitch) * radiusPx;
+      sphereStir.live = true;
+    }
+    st.lastYaw = st.yaw;
+    st.lastPitch = st.pitch;
     // The orb spins on its own and leans with the sphere when you drag it.
     orb.mesh.scale.setScalar(R * 0.62);
     orb.mesh.rotation.set(0.35 + st.pitch * 0.6, (reduced ? 0 : s.clock.elapsedTime * 0.22) + st.yaw * 0.6, 0.18);
@@ -235,6 +253,9 @@ export default function CardSphere({ reduced, active }) {
   const inView = useInView(wrap);
   const [hovered, setHovered] = useState(null);
   const drag = useRef({ down: false, moved: false, x: 0, y: 0, dx: 0, dy: 0, vx: 0 });
+  useEffect(() => {
+    sphereStir.live = inView;
+  }, [inView]);
 
   useEffect(() => {
     document.body.style.cursor = hovered ? 'pointer' : '';
@@ -289,7 +310,7 @@ export default function CardSphere({ reduced, active }) {
         gl={{ alpha: true, antialias: true }}
         aria-hidden="true"
       >
-        <Sphere reduced={reduced} active={active} drag={drag} hovered={hovered} setHovered={setHovered} />
+        <Sphere reduced={reduced} active={active} drag={drag} hovered={hovered} setHovered={setHovered} wrap={wrap} />
       </Canvas>
     </div>
   );

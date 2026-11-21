@@ -13,7 +13,9 @@ export const DEFAULTS = {
   trailDark: 0.52, // how much darker the wet trail is
   wetEdges: 13, // how strong the darker wet edges are
   wisps: 0, // swirly tendrils inside the moving water (0 = off)
-  swirls: 0, // a pair of curls left behind the cursor, like a wake (0 = off)
+  swirls: 0.95, // a pair of curls left behind the cursor, like a wake (0 = off)
+  sphereStir: 1, // how much spinning the card sphere drags the water around it (0 = off)
+  granules: 0.5, // darker pigment specks that appear as dragged colour dries back (0 = off)
   rightBoost: 0.4, // extra pigment on the rose side
   bottomFade: 0.16, // how much of the bottom fades into the page
   detail: 1, // calculation resolution: higher = smoother edges, more GPU work
