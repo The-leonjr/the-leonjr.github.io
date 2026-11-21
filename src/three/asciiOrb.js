@@ -54,10 +54,33 @@ const orbFrag = /* glsl */ `
     q.y += fbm(vObj * 2.4 + uTime * 0.05) * 1.2;
     float bands = smoothstep(0.35, 0.65, 0.5 + 0.5 * sin(q.y * 5.0 + fbm(q) * 4.0));
 
-    float light = 0.08 + 0.92 * diff;
-    float ink = 0.14 + (1.0 - light) * 0.86 + bands * 0.3 + rim * 0.3;
-    ink = clamp(ink, 0.2, 1.0);
-    gl_FragColor = vec4(ink, step(0.45, spec), bands, 1.0);
+    // Bounce light from below keeps the shadow side from going flat.
+    float bounce = max(-N.y, 0.0) * 0.18;
+    float light = 0.06 + 0.94 * diff + bounce;
+    float ink = 0.12 + (1.0 - light) * 0.88 + bands * 0.26 + rim * 0.32;
+    ink = clamp(ink, 0.18, 1.0);
+    float facing = max(dot(N, V), 0.0);
+    gl_FragColor = vec4(ink, step(0.45, spec), facing, 1.0);
+  }
+`;
+
+// The paper ball under the characters: bright on the lit side, cooler in shadow, soft at the rim.
+const backFrag = /* glsl */ `
+  precision highp float;
+  varying vec3 vN;
+  varying vec3 vObj;
+  varying vec3 vView;
+  uniform vec3 uLight;
+  uniform vec3 uLit;
+  uniform vec3 uShade;
+  uniform float uAlpha;
+  void main() {
+    vec3 N = normalize(vN);
+    vec3 V = normalize(-vView);
+    float diff = max(dot(N, normalize(uLight)), 0.0);
+    float facing = max(dot(N, V), 0.0);
+    vec3 col = mix(uShade, uLit, smoothstep(0.0, 0.9, diff));
+    gl_FragColor = vec4(col, uAlpha * smoothstep(0.0, 0.45, facing));
   }
 `;
 
@@ -76,8 +99,6 @@ const asciiFrag = /* glsl */ `
   uniform vec3 uLight;
   uniform vec3 uDark;
   uniform vec3 uGlint;
-  uniform vec3 uPaper;
-  uniform float uPaperAlpha;
   void main() {
     vec2 cell = floor(vUv * uCells);
     vec2 f = fract(vUv * uCells);
@@ -85,11 +106,16 @@ const asciiFrag = /* glsl */ `
     if (o.a < 0.5) discard;
     bool glint = o.g > 0.5;
     float index = glint ? 8.0 : floor(clamp(o.r, 0.0, 0.999) * uCount);
-    float a = texture2D(uGlyphs, vec2((index + f.x) / uCount, f.y)).a;
+    // Characters shrink toward the edge of the ball, as if printed on a curved surface.
+    float facing = o.b;
+    float size = mix(0.42, 1.0, smoothstep(0.0, 0.75, facing));
+    vec2 gf = (f - 0.5) / size + 0.5;
+    float inside = step(0.0, gf.x) * step(gf.x, 1.0) * step(0.0, gf.y) * step(gf.y, 1.0);
+    float a = texture2D(uGlyphs, vec2((index + clamp(gf.x, 0.0, 1.0)) / uCount, clamp(gf.y, 0.0, 1.0))).a * inside;
+    if (a < 0.02) discard;
     vec3 col = mix(uLight, uDark, smoothstep(0.15, 0.85, o.r));
     if (glint) col = uGlint;
-    // A soft paper disc behind the characters, so the orb reads as one solid ball over the water.
-    gl_FragColor = vec4(mix(uPaper, col, a), max(uPaperAlpha, a));
+    gl_FragColor = vec4(col, a);
   }
 `;
 
@@ -122,9 +148,27 @@ export function createAsciiOrb({ light = '#2f8a7e', dark = '#163f3a', glint = '#
     fragmentShader: orbFrag,
     uniforms: { uTime: { value: 0 }, uLight: { value: new THREE.Vector3(-0.55, 0.65, 0.75) } },
   });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), orbMat);
+  const sphereGeo = new THREE.SphereGeometry(1, 64, 48);
+  const mesh = new THREE.Mesh(sphereGeo, orbMat);
   const orbScene = new THREE.Scene();
   orbScene.add(mesh);
+
+  const backMat = new THREE.ShaderMaterial({
+    vertexShader: orbVert,
+    fragmentShader: backFrag,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      uLight: orbMat.uniforms.uLight,
+      uLit: { value: rgb('#fcf9f2') },
+      uShade: { value: rgb('#c9d9d0') },
+      uAlpha: { value: 0.78 },
+    },
+  });
+  const back = new THREE.Mesh(sphereGeo, backMat);
+  const backScene = new THREE.Scene();
+  backScene.add(back);
 
   const cells = new THREE.WebGLRenderTarget(2, 2, {
     minFilter: THREE.NearestFilter,
@@ -146,10 +190,27 @@ export function createAsciiOrb({ light = '#2f8a7e', dark = '#163f3a', glint = '#
       uLight: { value: rgb(light) },
       uDark: { value: rgb(dark) },
       uGlint: { value: rgb(glint) },
-      uPaper: { value: rgb('#f4f0e7') },
-      uPaperAlpha: { value: 0.6 },
     },
   });
+  const shadowTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(22,63,58,0.55)');
+    grd.addColorStop(0.55, 'rgba(22,63,58,0.18)');
+    grd.addColorStop(1, 'rgba(22,63,58,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthTest: false, depthWrite: false }),
+  );
+  const shadowScene = new THREE.Scene();
+  shadowScene.add(shadow);
+
   const quadScene = new THREE.Scene();
   quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), asciiMat));
   const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -178,15 +239,29 @@ export function createAsciiOrb({ light = '#2f8a7e', dark = '#163f3a', glint = '#
       renderer.setRenderTarget(target);
       renderer.setClearColor(clear, alpha);
       renderer.autoClear = false;
+      // Contact shadow first, just under the orb, then the characters on top.
+      const r = mesh.scale.x;
+      shadow.position.set(mesh.position.x + r * 0.08, mesh.position.y - r * 1.08, mesh.position.z - r);
+      shadow.scale.set(r * 2.1, r * 0.5, 1);
+      shadow.quaternion.copy(camera.quaternion);
+      renderer.render(shadowScene, camera);
+      back.position.copy(mesh.position);
+      back.quaternion.copy(mesh.quaternion);
+      back.scale.copy(mesh.scale);
+      renderer.render(backScene, camera);
       renderer.render(quadScene, quadCam);
       renderer.autoClear = autoClear;
     },
     dispose() {
       cells.dispose();
       glyphs.dispose();
+      shadowTex.dispose();
+      shadow.geometry.dispose();
+      shadow.material.dispose();
       orbMat.dispose();
       asciiMat.dispose();
-      mesh.geometry.dispose();
+      sphereGeo.dispose();
+      backMat.dispose();
     },
   };
 }

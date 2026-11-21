@@ -14,7 +14,7 @@ import { useInView } from '../hooks.js';
 
 // Colour slots per side: [main pigment, light wash, deep pigment]. No blue, no orange.
 const LEFT = ['#5fcca6', '#cfeadf', '#23897b'];
-const RIGHT = ['#ea7896', '#f4d6de', '#93437c'];
+const RIGHT = ['#e5618a', '#efbccb', '#863170'];
 
 // Raw sRGB values: this canvas writes colours straight to the screen with no conversion.
 const hex = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
@@ -23,9 +23,10 @@ const PAPER = hex('#f4f0e7');
 // Feel. Lower RELAX = the dragged colour lingers longer before settling back.
 const MIN_WATER = 0.1; // the water never thins below this, so it is always there
 const RELAX = 0.008; // per frame at 60fps: about 2 seconds to half-settle, 6+ to settle fully
-const DRAG = 0.9; // how far colour travels with the cursor
+const DRAG = 1.1; // how far colour travels with the cursor
+const FRAY = 2.6; // how much the dragged colour frays into wispy tendrils
 const VEL_DECAY = 0.965; // how long the cursor's stir keeps moving the water
-const STIR_RADIUS = 0.11; // size of the "hand" in the water
+const STIR_RADIUS = 0.055; // width of the stroke the cursor leaves
 const CURSOR_LAG = 0.08; // lower = the stir point trails further behind the cursor
 
 const quadVert = /* glsl */ `
@@ -60,6 +61,11 @@ const velFrag = /* glsl */ `
     d.x *= uAspect;
     float g = exp(-dot(d, d) / (uRadius * uRadius));
     vec2 v = prev.xy * uDecay + uVel * g;
+    // Small eddies curl off both edges of the stroke, spinning opposite ways, like a real wake.
+    float ring = exp(-dot(d, d) / (uRadius * uRadius * 4.0)) - g;
+    float spin = sign(uVel.x * d.y - uVel.y * d.x);
+    vec2 around = normalize(vec2(-d.y, d.x) + 1e-5);
+    v += around * spin * ring * length(uVel) * 0.9;
     float wet = max(prev.z * 0.993, g * clamp(length(uVel) * 60.0, 0.0, 1.0));
     gl_FragColor = vec4(clamp(v, -0.05, 0.05), wet, 1.0);
   }
@@ -76,14 +82,23 @@ const dyeFrag = /* glsl */ `
   uniform float uRelax;
   uniform float uDrag;
   uniform float uMin;
+  uniform float uFray;
+  uniform vec2 uTexel;
   uniform vec3 uL1, uL2, uL3, uR1, uR2, uR3;
   ${noiseGLSL}
   void main() {
     vec2 v = texture2D(uVel, vUv).xy;
-    vec4 carried = texture2D(uDye, vUv - v * uDrag);
+    // Where the water is moving, a fine noise frays the colour into wisps, like ink in water.
+    float speed = length(v);
+    vec2 wisp = vec2(noise(vUv * 26.0 + uTime * 0.4), noise(vUv * 26.0 + 11.0 - uTime * 0.4)) - 0.5;
+    vec4 carried = texture2D(uDye, vUv - v * uDrag - wisp * speed * uFray);
 
-    // ShaderGradient's output as weights for the three colour slots.
-    vec3 g = max(texture2D(uGrad, vUv).rgb, 0.0);
+    // ShaderGradient's output as weights for the three colour slots (lightly blurred to stay smooth).
+    vec2 t = uTexel * 2.0;
+    vec3 g = texture2D(uGrad, vUv).rgb * 0.36
+      + (texture2D(uGrad, vUv + vec2(t.x, 0.0)).rgb + texture2D(uGrad, vUv - vec2(t.x, 0.0)).rgb
+      + texture2D(uGrad, vUv + vec2(0.0, t.y)).rgb + texture2D(uGrad, vUv - vec2(0.0, t.y)).rgb) * 0.16;
+    g = max(g, 0.0);
     vec3 w = g / max(g.r + g.g + g.b, 0.001);
 
     // Left is green, right is rose and plum. The border wanders so the two swim around each other.
@@ -94,7 +109,8 @@ const dyeFrag = /* glsl */ `
     vec3 c2 = mix(uL2, uR2, side);
     vec3 c3 = mix(uL3, uR3, side);
     vec3 pigment = w.r * c1 + w.g * c2 + w.b * c3;
-    float amount = mix(uMin, 0.88, clamp(w.r * 0.85 + w.b * 1.15, 0.0, 1.0));
+    // The rose side is naturally paler, so it gets a little more pigment to stay as strong as the green.
+    float amount = mix(uMin + side * 0.08, 0.9, clamp(w.r * 0.85 + w.b * 1.15 + side * 0.12, 0.0, 1.0));
 
     gl_FragColor = mix(carried, vec4(pigment, amount), uRelax);
   }
@@ -111,11 +127,14 @@ const compFrag = /* glsl */ `
   uniform float uTime;
   ${noiseGLSL}
   void main() {
-    vec4 d = texture2D(uDye, vUv);
+    vec2 h = 1.0 / uRes;
+    vec4 d = texture2D(uDye, vUv) * 0.5
+      + (texture2D(uDye, vUv + vec2(h.x, h.y)) + texture2D(uDye, vUv - vec2(h.x, h.y))
+      + texture2D(uDye, vUv + vec2(h.x, -h.y)) + texture2D(uDye, vUv - vec2(h.x, -h.y))) * 0.125;
     float wet = texture2D(uVel, vUv).z;
 
-    // The trail reads as a heavier stroke of the same colour.
-    float amount = clamp(d.a + wet * 0.22, 0.0, 1.0);
+    // The trail reads as a heavier, wetter stroke of the same colour.
+    float amount = clamp(d.a + wet * 0.3, 0.0, 1.0);
     vec3 col = mix(uPaper, d.rgb, amount * 0.94);
 
     // Wet edges: pigment collects where the wash changes.
@@ -131,7 +150,7 @@ const compFrag = /* glsl */ `
     col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.018;
 
     // Only the last strip fades to paper, so the hero runs straight into the page.
-    col = mix(uPaper, col, smoothstep(0.0, 0.14, vUv.y));
+    col = mix(uPaper, col, smoothstep(0.0, 0.08, vUv.y));
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -171,6 +190,8 @@ function WaterPass({ reduced, pointer }) {
       uRelax: { value: 1 },
       uDrag: { value: DRAG },
       uMin: { value: MIN_WATER },
+      uFray: { value: FRAY },
+      uTexel: { value: new THREE.Vector2(0.001, 0.001) },
       uL1: { value: hex(LEFT[0]) },
       uL2: { value: hex(LEFT[1]) },
       uL3: { value: hex(LEFT[2]) },
@@ -206,8 +227,12 @@ function WaterPass({ reduced, pointer }) {
 
   useEffect(() => {
     const v = gl.getDrawingBufferSize(new THREE.Vector2());
-    res.grad.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1));
-    res.dye.forEach((t) => t.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1)));
+    const dw = Math.max(2, Math.round(v.x * 0.75));
+    const dh = Math.max(2, Math.round(v.y * 0.75));
+    res.grad.setSize(dw, dh);
+    res.dye.forEach((t) => t.setSize(dw, dh));
+    res.vel.forEach((t) => t.setSize(Math.max(2, Math.round(v.x / 3)), Math.max(2, Math.round(v.y / 3))));
+    res.dyeMat.uniforms.uTexel.value.set(1 / dw, 1 / dh);
     res.compMat.uniforms.uRes.value.set(v.x, v.y);
     res.velMat.uniforms.uAspect.value = size.width / Math.max(1, size.height);
     first.current = true;
