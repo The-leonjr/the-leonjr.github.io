@@ -1,0 +1,25 @@
+import { lazy, Suspense, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { hasWebGL } from '../hooks.js';
+
+const AsciiKnot = lazy(() => import('../components/AsciiKnot.jsx'));
+
+export default function NotFound() {
+  useEffect(() => {
+    document.title = 'Page not found · Leon Jr Chua';
+  }, []);
+  return (
+    <main id="main" className="not-found">
+      <div className="ascii-frame small">
+        {hasWebGL() && (
+          <Suspense fallback={null}>
+            <AsciiKnot tipped label="The homepage knot, tipped over" />
+          </Suspense>
+        )}
+      </div>
+      <h1>This page wandered off.</h1>
+      <p>The link might be old, or the page moved when the site was rebuilt.</p>
+      <Link className="btn" to="/">Back to the homepage</Link>
+    </main>
+  );
+}
