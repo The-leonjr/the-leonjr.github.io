@@ -9,15 +9,15 @@ export const DEFAULTS = {
   drag: 1.65, // how far colour travels with the cursor
   strokeWidth: 0.04, // width of the stroke the cursor leaves
   stirLife: 0.912, // how long the cursor's stir keeps moving the water
-  cursorLag: 0.08, // lower = the stir point trails further behind the cursor
+  cursorLag: 0.13, // lower = the stir point trails further behind the cursor
   trailDark: 0.52, // how much darker the wet trail is
   wetEdges: 13, // how strong the darker wet edges are
   wisps: 0, // swirly tendrils inside the moving water (0 = off)
   swirls: 0.95, // a pair of curls left behind the cursor, like a wake (0 = off)
-  sphereStir: 1, // how much spinning the card sphere drags the water around it (0 = off)
-  granules: 0.5, // darker pigment specks that appear as dragged colour dries back (0 = off)
+  sphereStir: 0.05, // how much spinning the card sphere drags the water around it (0 = off)
+  granules: 0.75, // darker pigment specks that appear as dragged colour dries back (0 = off)
   rightBoost: 0.4, // extra pigment on the rose side
-  bottomFade: 0.16, // how much of the bottom fades into the page
+  bottomFade: 0.2, // how much of the bottom fades into the page
   detail: 1, // calculation resolution: higher = smoother edges, more GPU work
   leftMain: '#5fcca6',
   leftLight: '#cfeadf',
