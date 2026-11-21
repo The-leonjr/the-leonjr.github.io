@@ -49,6 +49,26 @@ export default function TunePanel() {
     redraw((n) => n + 1);
   };
 
+  // Puts just one section back to its starting values.
+  const resetGroup = (keys) => {
+    keys.forEach((k) => (params[k] = DEFAULTS[k]));
+    save();
+    redraw((n) => n + 1);
+  };
+  const GroupHead = ({ title, keys }) => (
+    <legend className="tune-legend">
+      <span>{title}</span>
+      <button
+        type="button"
+        className="tune-default"
+        disabled={keys.every((k) => params[k] === DEFAULTS[k])}
+        onClick={() => resetGroup(keys)}
+      >
+        Default
+      </button>
+    </legend>
+  );
+
   const copy = async () => {
     const text = `export const DEFAULTS = ${JSON.stringify(params, null, 2)};`;
     try {
@@ -76,7 +96,7 @@ export default function TunePanel() {
       </header>
       {SLIDERS.map(([group, rows]) => (
         <fieldset key={group}>
-          <legend>{group}</legend>
+          <GroupHead title={group} keys={rows.map((r) => r[0])} />
           {rows.map(([key, label, min, max, step]) => (
             <label key={key} className="tune-row">
               <span>
@@ -96,7 +116,7 @@ export default function TunePanel() {
         </fieldset>
       ))}
       <fieldset>
-        <legend>Colours</legend>
+        <GroupHead title="Colours" keys={COLOURS.map((c) => c[0])} />
         <div className="tune-colours">
           {COLOURS.map(([key, label]) => (
             <label key={key}>
@@ -115,7 +135,7 @@ export default function TunePanel() {
             redraw((n) => n + 1);
           }}
         >
-          Reset
+          Reset all
         </button>
       </div>
       <p className="tune-note">
