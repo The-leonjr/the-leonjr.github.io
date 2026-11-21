@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { hasWebGL } from '../hooks.js';
 
-const AsciiKnot = lazy(() => import('../components/AsciiKnot.jsx'));
+const AsciiOrb = lazy(() => import('../components/AsciiOrb.jsx'));
 
 export default function NotFound() {
   useEffect(() => {
@@ -13,7 +13,7 @@ export default function NotFound() {
       {hasWebGL() && (
         <div className="ascii-frame small">
           <Suspense fallback={null}>
-            <AsciiKnot tipped label="The homepage knot, tipped over" />
+            <AsciiOrb dropped label="The homepage orb, rolled out of place" />
           </Suspense>
         </div>
       )}

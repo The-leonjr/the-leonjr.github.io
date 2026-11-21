@@ -1,35 +1,50 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { useInView } from '../hooks.js';
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
+import { useInView } from '../hooks.js';
 
-// Two watercolour palettes. The left half of the screen uses LEFT, the right half RIGHT.
-// Crossing the middle with the cursor slowly washes one into the other.
-// The middle colour is near-white paper, so the washes bloom on paper instead of covering it.
-const LEFT = ['#6fd3b2', '#f7f3ea', '#2f9b8c']; // mint and sea-glass teal
-const RIGHT = ['#ec7d9b', '#f8f2e6', '#9e4a84']; // rose and a red-leaning plum (no blue)
+// How it works, in three layers:
+// 1. ShaderGradient draws the slow, flowing water shapes. Its three colours are set to pure red,
+//    green and blue so its output tells us how much of each "slot" is at every pixel.
+// 2. A dye layer turns those slots into watercolour: green on the left, rose and plum on the right,
+//    with a wobbly border where the two swim around each other.
+// 3. The cursor stirs a velocity field. The dye is carried along by it (dragged, not pushed away),
+//    then slowly relaxes back to the flowing base.
+
+// Colour slots per side: [main pigment, light wash, deep pigment]. No blue, no orange.
+const LEFT = ['#5fcca6', '#cfeadf', '#23897b'];
+const RIGHT = ['#ea7896', '#f4d6de', '#93437c'];
+
 // Raw sRGB values: this canvas writes colours straight to the screen with no conversion.
-const PAPER = new THREE.Vector3(0xf4 / 255, 0xf0 / 255, 0xe7 / 255);
+const hex = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
+const PAPER = hex('#f4f0e7');
 
-// How the water behaves. Bigger DECAY = colour takes longer to settle back.
-const DECAY = 0.9935; // per frame at 60fps: about 2 seconds to half-settle, 6+ to settle fully
-const PUSH = 0.32; // how far colour gets shoved by the cursor
-const CURSOR_LAG = 0.055; // lower = the stir point trails further behind the cursor
-const COLOUR_FADE = 0.35; // lower = slower wash between palettes
-
-const hexToRGB = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-const LEFT_RGB = LEFT.map(hexToRGB);
-const RIGHT_RGB = RIGHT.map(hexToRGB);
-const PAPER_RGB = ['#e9efe3', '#f7f3ea', '#efe6e6'].map(hexToRGB); // the in-between "clear water" step
+// Feel. Lower RELAX = the dragged colour lingers longer before settling back.
+const MIN_WATER = 0.1; // the water never thins below this, so it is always there
+const RELAX = 0.008; // per frame at 60fps: about 2 seconds to half-settle, 6+ to settle fully
+const DRAG = 0.9; // how far colour travels with the cursor
+const VEL_DECAY = 0.965; // how long the cursor's stir keeps moving the water
+const STIR_RADIUS = 0.11; // size of the "hand" in the water
+const CURSOR_LAG = 0.08; // lower = the stir point trails further behind the cursor
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
 `;
 
-// The trail remembers where the cursor moved and in which direction. It fades slowly.
-const trailFrag = /* glsl */ `
+const noiseGLSL = /* glsl */ `
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + 1.0), f.x), f.y);
+  }
+`;
+
+// Velocity field: the cursor adds its motion, the field carries itself along and fades.
+// .z keeps a slower-fading "wet" record of where the cursor has been, used to darken the trail.
+const velFrag = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
   uniform sampler2D uPrev;
@@ -40,178 +55,175 @@ const trailFrag = /* glsl */ `
   uniform float uRadius;
   void main() {
     vec4 here = texture2D(uPrev, vUv);
-    // Let the trail drift along itself a little, so it smears like water instead of fading in place.
-    vec4 prev = texture2D(uPrev, vUv - here.xy * 0.006);
-    vec3 t = prev.xyz * uDecay;
+    vec4 prev = texture2D(uPrev, vUv - here.xy * 0.5);
     vec2 d = vUv - uMouse;
     d.x *= uAspect;
     float g = exp(-dot(d, d) / (uRadius * uRadius));
-    t.xy += uVel * g;
-    t.z = min(t.z + g * length(uVel) * 6.0, 1.0);
-    gl_FragColor = vec4(clamp(t.xy, -1.0, 1.0), t.z, 1.0);
+    vec2 v = prev.xy * uDecay + uVel * g;
+    float wet = max(prev.z * 0.993, g * clamp(length(uVel) * 60.0, 0.0, 1.0));
+    gl_FragColor = vec4(clamp(v, -0.05, 0.05), wet, 1.0);
   }
 `;
 
-// Final picture: the ShaderGradient image, pushed around by the trail and painted onto paper.
+// Dye: carried along by the velocity, relaxing toward the flowing base colour.
+const dyeFrag = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform sampler2D uDye;
+  uniform sampler2D uVel;
+  uniform sampler2D uGrad;
+  uniform float uTime;
+  uniform float uRelax;
+  uniform float uDrag;
+  uniform float uMin;
+  uniform vec3 uL1, uL2, uL3, uR1, uR2, uR3;
+  ${noiseGLSL}
+  void main() {
+    vec2 v = texture2D(uVel, vUv).xy;
+    vec4 carried = texture2D(uDye, vUv - v * uDrag);
+
+    // ShaderGradient's output as weights for the three colour slots.
+    vec3 g = max(texture2D(uGrad, vUv).rgb, 0.0);
+    vec3 w = g / max(g.r + g.g + g.b, 0.001);
+
+    // Left is green, right is rose and plum. The border wanders so the two swim around each other.
+    float wobble = (noise(vec2(vUv.y * 2.2, uTime * 0.05)) - 0.5) * 0.34
+                 + (noise(vec2(vUv.y * 6.0 + 4.0, uTime * 0.09)) - 0.5) * 0.1;
+    float side = smoothstep(0.36, 0.64, vUv.x + wobble);
+    vec3 c1 = mix(uL1, uR1, side);
+    vec3 c2 = mix(uL2, uR2, side);
+    vec3 c3 = mix(uL3, uR3, side);
+    vec3 pigment = w.r * c1 + w.g * c2 + w.b * c3;
+    float amount = mix(uMin, 0.88, clamp(w.r * 0.85 + w.b * 1.15, 0.0, 1.0));
+
+    gl_FragColor = mix(carried, vec4(pigment, amount), uRelax);
+  }
+`;
+
+// Final picture: the dye painted onto paper, with wet edges, a darker trail and paper grain.
 const compFrag = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
-  uniform sampler2D uGrad;
-  uniform sampler2D uTrail;
+  uniform sampler2D uDye;
+  uniform sampler2D uVel;
   uniform vec3 uPaper;
   uniform vec2 uRes;
   uniform float uTime;
-  uniform float uPush;
-
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + 1.0), f.x), f.y);
-  }
-  float cover(vec2 p) {
-    vec3 c = texture2D(uGrad, p).rgb;
-    return smoothstep(0.05, 0.42, length(c - vec3(0.97, 0.955, 0.92)));
-  }
-
+  ${noiseGLSL}
   void main() {
-    vec4 tr = texture2D(uTrail, vUv);
-    vec2 uv = vUv - tr.xy * uPush;
-    // Slightly uneven edges, like pigment soaking into paper.
-    uv += (vec2(noise(vUv * 7.0 + uTime * 0.02), noise(vUv * 7.0 + 9.0 - uTime * 0.02)) - 0.5) * 0.014;
-    // A small blur softens the hard crest of the 3D water plane into a bleed.
-    vec2 b = 6.0 / uRes;
-    vec3 g = texture2D(uGrad, uv).rgb * 0.4
-      + (texture2D(uGrad, uv + vec2(b.x, 0.0)).rgb + texture2D(uGrad, uv - vec2(b.x, 0.0)).rgb
-      + texture2D(uGrad, uv + vec2(0.0, b.y)).rgb + texture2D(uGrad, uv - vec2(0.0, b.y)).rgb) * 0.15;
+    vec4 d = texture2D(uDye, vUv);
+    float wet = texture2D(uVel, vUv).z;
 
-    // How much pigment sits here: zero where the gradient is at its paper-white colour.
-    vec2 px = 5.0 / uRes;
-    float c0 = cover(uv);
-    float cx = cover(uv + vec2(px.x, 0.0));
-    float cy = cover(uv + vec2(0.0, px.y));
-    // Uneven pigment density, like a real wash drying.
-    float dens = 0.72 + 0.4 * noise(vUv * vec2(4.0, 2.6) + uTime * 0.01);
-    float amount = clamp(c0 * dens, 0.0, 1.0);
-    // Where the cursor pushed through, the wash thins and the paper shows.
-    amount *= 1.0 - clamp(tr.z, 0.0, 1.0) * 0.65;
+    // The trail reads as a heavier stroke of the same colour.
+    float amount = clamp(d.a + wet * 0.22, 0.0, 1.0);
+    vec3 col = mix(uPaper, d.rgb, amount * 0.94);
 
-    // The gradient's lighting greys the colours a little; give them back some saturation.
-    g = mix(vec3(dot(g, vec3(0.299, 0.587, 0.114))), g, 1.3);
-    vec3 col = mix(uPaper, g, amount * 0.9);
-
-    // Wet edges: pigment collects where the wash changes, so those lines go darker.
-    float edge = clamp(length(vec2(cx - c0, cy - c0)) * 9.0, 0.0, 1.0);
-    col = mix(col, col * 0.74, edge * amount);
+    // Wet edges: pigment collects where the wash changes.
+    vec2 px = 4.0 / uRes;
+    float ax = texture2D(uDye, vUv + vec2(px.x, 0.0)).a;
+    float ay = texture2D(uDye, vUv + vec2(0.0, px.y)).a;
+    float edge = clamp(length(vec2(ax - d.a, ay - d.a)) * 10.0, 0.0, 1.0);
+    col = mix(col, col * 0.76, edge * amount);
 
     // Granulation inside the pigment, plus a little paper tooth everywhere.
     float gran = noise(gl_FragCoord.xy * 0.3) * noise(gl_FragCoord.xy * 0.07 + 3.0);
-    col *= 1.0 - gran * 0.13 * amount;
-    col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.02;
+    col *= 1.0 - gran * 0.12 * amount;
+    col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.018;
 
-    // Fade to plain paper at the bottom so the hero runs straight into the page.
-    col = mix(uPaper, col, smoothstep(0.0, 0.3, vUv.y));
+    // Only the last strip fades to paper, so the hero runs straight into the page.
+    col = mix(uPaper, col, smoothstep(0.0, 0.14, vUv.y));
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
-function makeTarget(w, h, type) {
+function target(w, h) {
   return new THREE.WebGLRenderTarget(w, h, {
-    type,
+    type: THREE.HalfFloatType,
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
-    depthBuffer: type === THREE.UnsignedByteType,
+    depthBuffer: false,
   });
 }
 
-// Runs after ShaderGradient each frame: renders it to a texture, updates the trail, draws the result.
 function WaterPass({ reduced, pointer }) {
   const { gl, scene, camera, size } = useThree();
-  const colourUniforms = useRef(null);
-  const hookedMaterial = useRef(null);
-  const mix = useRef(0);
-  const stir = useRef({ x: 0.5, y: 0.5, px: 0.5, py: 0.5, seen: false, t: 0 });
+  const stir = useRef({ x: 0.3, y: 0.5, px: 0.3, py: 0.5, t: 0 });
+  const first = useRef(true);
 
   const res = useMemo(() => {
     const quad = new THREE.PlaneGeometry(2, 2);
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const trailMat = new THREE.ShaderMaterial({
-      vertexShader: quadVert,
-      fragmentShader: trailFrag,
-      uniforms: {
-        uPrev: { value: null },
-        uMouse: { value: new THREE.Vector2(0.5, 0.5) },
-        uVel: { value: new THREE.Vector2() },
-        uAspect: { value: 1 },
-        uDecay: { value: DECAY },
-        uRadius: { value: 0.12 },
-      },
-      depthTest: false,
+    const mat = (frag, uniforms) =>
+      new THREE.ShaderMaterial({ vertexShader: quadVert, fragmentShader: frag, uniforms, depthTest: false });
+    const velMat = mat(velFrag, {
+      uPrev: { value: null },
+      uMouse: { value: new THREE.Vector2(0.3, 0.5) },
+      uVel: { value: new THREE.Vector2() },
+      uAspect: { value: 1 },
+      uDecay: { value: VEL_DECAY },
+      uRadius: { value: STIR_RADIUS },
     });
-    const compMat = new THREE.ShaderMaterial({
-      vertexShader: quadVert,
-      fragmentShader: compFrag,
-      uniforms: {
-        uGrad: { value: null },
-        uTrail: { value: null },
-        uPaper: { value: PAPER.clone() },
-        uRes: { value: new THREE.Vector2(1, 1) },
-        uTime: { value: 0 },
-        uPush: { value: PUSH },
-      },
-      depthTest: false,
+    const dyeMat = mat(dyeFrag, {
+      uDye: { value: null },
+      uVel: { value: null },
+      uGrad: { value: null },
+      uTime: { value: 0 },
+      uRelax: { value: 1 },
+      uDrag: { value: DRAG },
+      uMin: { value: MIN_WATER },
+      uL1: { value: hex(LEFT[0]) },
+      uL2: { value: hex(LEFT[1]) },
+      uL3: { value: hex(LEFT[2]) },
+      uR1: { value: hex(RIGHT[0]) },
+      uR2: { value: hex(RIGHT[1]) },
+      uR3: { value: hex(RIGHT[2]) },
     });
-    const trailScene = new THREE.Scene();
-    trailScene.add(new THREE.Mesh(quad, trailMat));
-    const compScene = new THREE.Scene();
-    compScene.add(new THREE.Mesh(quad, compMat));
-    const floatType = gl.capabilities.isWebGL2 ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    const compMat = mat(compFrag, {
+      uDye: { value: null },
+      uVel: { value: null },
+      uPaper: { value: PAPER },
+      uRes: { value: new THREE.Vector2(1, 1) },
+      uTime: { value: 0 },
+    });
+    const sceneFor = (m) => {
+      const s = new THREE.Scene();
+      s.add(new THREE.Mesh(quad, m));
+      return s;
+    };
     return {
       cam,
-      trailMat,
+      velMat,
+      dyeMat,
       compMat,
-      trailScene,
-      compScene,
-      trails: [makeTarget(256, 256, floatType), makeTarget(256, 256, floatType)],
-      grad: makeTarget(2, 2, THREE.UnsignedByteType),
+      velScene: sceneFor(velMat),
+      dyeScene: sceneFor(dyeMat),
+      compScene: sceneFor(compMat),
+      vel: [target(256, 256), target(256, 256)],
+      dye: [target(2, 2), target(2, 2)],
+      grad: new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }),
     };
-  }, [gl]);
+  }, []);
 
-  // Keep the gradient texture the same size as the canvas.
   useEffect(() => {
     const v = gl.getDrawingBufferSize(new THREE.Vector2());
-    res.grad.setSize(Math.max(2, v.x), Math.max(2, v.y));
+    res.grad.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1));
+    res.dye.forEach((t) => t.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1)));
     res.compMat.uniforms.uRes.value.set(v.x, v.y);
-    res.trailMat.uniforms.uAspect.value = size.width / Math.max(1, size.height);
+    res.velMat.uniforms.uAspect.value = size.width / Math.max(1, size.height);
+    first.current = true;
   }, [gl, res, size]);
 
   useEffect(
     () => () => {
-      res.trails.forEach((t) => t.dispose());
-      res.grad.dispose();
-      res.trailMat.dispose();
-      res.compMat.dispose();
+      [...res.vel, ...res.dye, res.grad].forEach((t) => t.dispose());
+      [res.velMat, res.dyeMat, res.compMat].forEach((m) => m.dispose());
     },
     [res],
   );
 
-  // Priority 1 takes over rendering from R3F, so this function draws every frame.
   useFrame((state, delta) => {
     const dt = Math.min(delta, 1 / 20);
-
-    // Grab ShaderGradient's colour uniforms, so palettes can blend without rebuilding its material.
-    // If ShaderGradient ever swaps its material, hook the new one.
-    const mat = scene.getObjectByName('shadergradient-mesh')?.material;
-    if (mat && hookedMaterial.current !== mat) {
-      hookedMaterial.current = mat;
-      colourUniforms.current = null;
-      const original = mat.onBeforeCompile;
-      mat.onBeforeCompile = (shader, renderer) => {
-        original.call(mat, shader, renderer);
-        colourUniforms.current = shader.uniforms;
-      };
-      mat.needsUpdate = true;
-    }
+    const frames = dt * 60;
 
     // Where the "hand in the water" is. It trails behind the real cursor.
     const s = stir.current;
@@ -219,60 +231,49 @@ function WaterPass({ reduced, pointer }) {
     s.t += dt;
     let tx = p.x;
     let ty = p.y;
-    if (!p.active && !reduced) {
-      // Nobody is pointing: a slow invisible stir wanders so the water never looks frozen.
-      // It stays on the side the visitor last pointed at, so the colour doesn't change by itself.
-      const side = p.moved ? (p.x > 0.5 ? 0.75 : 0.25) : 0.3;
-      tx = side + Math.cos(s.t * 0.13) * 0.17;
-      ty = 0.55 + Math.sin(s.t * 0.21) * 0.22;
-    } else if (!p.active) {
-      tx = s.x;
-      ty = s.y;
+    let gain = 1;
+    if (!p.active) {
+      // Nobody is pointing: a slow invisible stir keeps each side gently moving, on its own side.
+      const side = p.x > 0.5 ? 0.78 : 0.22;
+      tx = side + Math.cos(s.t * 0.15) * 0.12;
+      ty = 0.55 + Math.sin(s.t * 0.23) * 0.25;
+      gain = 0.35;
     }
-    const k = 1 - Math.pow(1 - CURSOR_LAG, dt * 60);
+    const k = 1 - Math.pow(1 - CURSOR_LAG, frames);
     s.px = s.x;
     s.py = s.y;
     s.x += (tx - s.x) * k;
     s.y += (ty - s.y) * k;
-    const vx = (s.x - s.px) * (p.active ? 9 : 4);
-    const vy = (s.y - s.py) * (p.active ? 9 : 4);
+    const vx = reduced ? 0 : (s.x - s.px) * gain;
+    const vy = reduced ? 0 : (s.y - s.py) * gain;
 
-    // Slowly wash between palettes depending on which half of the screen the cursor is in.
-    const target = p.moved && p.x > 0.5 ? 1 : 0;
-    // Uses the real frame time (not the clamped one) so a slow frame rate doesn't stall the fade.
-    mix.current += (target - mix.current) * (1 - Math.exp(-Math.min(delta, 0.5) * COLOUR_FADE));
-    const cu = colourUniforms.current;
-    if (cu && cu.uC1r) {
-      // Fade the old colour out to paper, then bloom the new one. Blending teal straight into
-      // plum would pass through blue on the way, so the wash clears first instead.
-      const m = mix.current;
-      const from = m < 0.5 ? LEFT_RGB : PAPER_RGB;
-      const to = m < 0.5 ? PAPER_RGB : RIGHT_RGB;
-      const k = m < 0.5 ? m * 2 : (m - 0.5) * 2;
-      ['1', '2', '3'].forEach((n, i) => {
-        ['r', 'g', 'b'].forEach((ch, j) => {
-          cu[`uC${n}${ch}`].value = from[i][j] + (to[i][j] - from[i][j]) * k;
-        });
-      });
-    }
-
-    // 1. ShaderGradient into a texture.
+    // 1. ShaderGradient's flowing shapes into a texture.
     gl.setRenderTarget(res.grad);
     gl.render(scene, camera);
 
-    // 2. Update the trail (ping-pong between two textures).
-    const [read, write] = res.trails;
-    res.trailMat.uniforms.uPrev.value = read.texture;
-    res.trailMat.uniforms.uMouse.value.set(s.x, s.y);
-    res.trailMat.uniforms.uVel.value.set(reduced ? 0 : vx, reduced ? 0 : vy);
-    res.trailMat.uniforms.uDecay.value = Math.pow(DECAY, dt * 60);
-    gl.setRenderTarget(write);
-    gl.render(res.trailScene, res.cam);
-    res.trails.reverse();
+    // 2. Stir the velocity field.
+    res.velMat.uniforms.uPrev.value = res.vel[0].texture;
+    res.velMat.uniforms.uMouse.value.set(s.x, s.y);
+    res.velMat.uniforms.uVel.value.set(vx, vy);
+    res.velMat.uniforms.uDecay.value = Math.pow(VEL_DECAY, frames);
+    gl.setRenderTarget(res.vel[1]);
+    gl.render(res.velScene, res.cam);
+    res.vel.reverse();
 
-    // 3. Paint it on screen.
-    res.compMat.uniforms.uGrad.value = res.grad.texture;
-    res.compMat.uniforms.uTrail.value = res.trails[0].texture;
+    // 3. Carry the dye along and let it relax toward the base.
+    res.dyeMat.uniforms.uDye.value = res.dye[0].texture;
+    res.dyeMat.uniforms.uVel.value = res.vel[0].texture;
+    res.dyeMat.uniforms.uGrad.value = res.grad.texture;
+    res.dyeMat.uniforms.uTime.value = state.clock.elapsedTime;
+    res.dyeMat.uniforms.uRelax.value = first.current || reduced ? 1 : 1 - Math.pow(1 - RELAX, frames);
+    first.current = false;
+    gl.setRenderTarget(res.dye[1]);
+    gl.render(res.dyeScene, res.cam);
+    res.dye.reverse();
+
+    // 4. Paint it on screen.
+    res.compMat.uniforms.uDye.value = res.dye[0].texture;
+    res.compMat.uniforms.uVel.value = res.vel[0].texture;
     res.compMat.uniforms.uTime.value = state.clock.elapsedTime;
     gl.setRenderTarget(null);
     gl.render(res.compScene, res.cam);
@@ -290,7 +291,7 @@ function Pause({ running }) {
 
 export default function WaterBackground({ reduced }) {
   const wrap = useRef(null);
-  const pointer = useRef({ x: 0.3, y: 0.5, active: false, moved: false, last: 0 });
+  const pointer = useRef({ x: 0.3, y: 0.5, active: false, last: 0 });
   const inView = useInView(wrap, '0px');
 
   // Track the cursor over the hero, in 0..1 coordinates with y pointing up.
@@ -303,11 +304,10 @@ export default function WaterBackground({ reduced }) {
       pointer.current.x = (e.clientX - r.left) / r.width;
       pointer.current.y = 1 - (e.clientY - r.top) / r.height;
       pointer.current.active = true;
-      pointer.current.moved = true;
       pointer.current.last = performance.now();
     };
     const idle = setInterval(() => {
-      if (performance.now() - pointer.current.last > 4000) pointer.current.active = false;
+      if (performance.now() - pointer.current.last > 3000) pointer.current.active = false;
     }, 500);
     window.addEventListener('pointermove', onMove, { passive: true });
     return () => {
@@ -316,7 +316,8 @@ export default function WaterBackground({ reduced }) {
     };
   }, []);
 
-  // Rendered once. ShaderGradient's props never change, so its material is never rebuilt.
+  // Rendered once. Its props never change, so ShaderGradient never rebuilds its material.
+  // The pure red/green/blue colours are slot markers, not the colours you see.
   const gradient = useMemo(
     () => (
       <ShaderGradient
@@ -324,7 +325,7 @@ export default function WaterBackground({ reduced }) {
         type="waterPlane"
         animate={reduced ? 'off' : 'on'}
         uTime={0}
-        uSpeed={0.1}
+        uSpeed={0.12}
         uStrength={2.4}
         uDensity={1.1}
         uFrequency={5.5}
@@ -335,16 +336,16 @@ export default function WaterBackground({ reduced }) {
         rotationX={0}
         rotationY={0}
         rotationZ={235}
-        color1={LEFT[0]}
-        color2={LEFT[1]}
-        color3={LEFT[2]}
+        color1="#b30000"
+        color2="#00b300"
+        color3="#0000b3"
         reflection={0.1}
         cAzimuthAngle={180}
         cPolarAngle={115}
         cDistance={3.9}
         cameraZoom={1.6}
         lightType="3d"
-        brightness={1.1}
+        brightness={1}
         envPreset="city"
         grain="off"
         wireframe={false}

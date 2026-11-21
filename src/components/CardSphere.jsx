@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useNavigate } from 'react-router-dom';
 import { byId, sphereOrder } from '../data/projects.js';
-import { buildKnot } from '../three/knot.js';
+import { createAsciiOrb } from '../three/asciiOrb.js';
 import { useInView } from '../hooks.js';
 
 // Where each card sits on the sphere (before any rotation). The first three face the visitor.
@@ -79,20 +79,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
   const navigate = useNavigate();
   const { camera, size } = useThree();
   const group = useRef();
-  const knot = useMemo(() => buildKnot({ lit: true }), []);
-  const glow = useMemo(() => {
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d');
-    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grd.addColorStop(0, 'rgba(157,205,189,0.75)');
-    grd.addColorStop(1, 'rgba(157,205,189,0)');
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 128, 128);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }, []);
+  // The centrepiece: a lit 3D orb drawn in text characters.
+  const orb = useMemo(() => createAsciiOrb(), []);
+  useEffect(() => () => orb.dispose(), [orb]);
 
   // Each card appears as soon as its own screenshot is ready, instead of waiting for all six.
   const [textures, setTextures] = useState([]);
@@ -134,7 +123,8 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     if (shift) camera.setViewOffset(size.width, size.height, -shift, 0, size.width, size.height);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
-  }, [camera, size, R, cardW, cardH, mobile]);
+    orb.setLayout(size.width, size.height, mobile ? 8 : 10);
+  }, [camera, size, R, cardW, cardH, mobile, orb]);
 
   const cards = useRef([]);
   const state = useRef({ yaw: 0, pitch: -0.08 });
@@ -142,6 +132,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const euler = useMemo(() => new THREE.Euler(), []);
 
+  // Priority 1 means this function draws the frame itself (in three passes, see the end).
   useFrame((s, delta) => {
     const dt = Math.min(delta, 1 / 20);
     const st = state.current;
@@ -170,7 +161,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     }
 
     group.current.rotation.set(st.pitch, st.yaw, 0, 'XYZ');
-    knot.rotation.y = THREE.MathUtils.degToRad(13) + s.clock.elapsedTime * (reduced ? 0 : 0.25);
+    // The orb spins on its own and leans with the sphere when you drag it.
+    orb.mesh.scale.setScalar(R * 0.62);
+    orb.mesh.rotation.set(0.35 + st.pitch * 0.6, (reduced ? 0 : s.clock.elapsedTime * 0.22) + st.yaw * 0.6, 0.18);
 
     // Entrance: each card starts in the middle and deals out to its place once its image is ready.
     euler.set(st.pitch, st.yaw, 0, 'XYZ');
@@ -191,18 +184,27 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
       mesh.scale.setScalar(sc);
       mesh.material.opacity = (0.6 + 0.4 * front) * Math.min(1, k * 3);
       mesh.renderOrder = isActive ? 10 : 0;
+      mesh.userData.front = tmp.z > 0;
     });
-  });
+
+    // Draw: cards behind the orb, then the ASCII orb, then the cards in front of it.
+    const gl = s.gl;
+    const meshes = cards.current.filter(Boolean);
+    gl.autoClear = false;
+    gl.setRenderTarget(null);
+    gl.clear();
+    meshes.forEach((m) => (m.visible = !m.userData.front));
+    gl.render(s.scene, camera);
+    orb.render(gl, camera, s.clock.elapsedTime);
+    gl.clearDepth();
+    meshes.forEach((m) => (m.visible = m.userData.front));
+    gl.render(s.scene, camera);
+    meshes.forEach((m) => (m.visible = true));
+  }, 1);
 
   return (
     <>
-      <ambientLight intensity={1.1} />
-      <directionalLight position={[3, 4, 5]} intensity={1.8} />
-      <sprite scale={[R * 1.3, R * 1.3, 1]}>
-        <spriteMaterial map={glow} transparent depthWrite={false} toneMapped={false} />
-      </sprite>
       <group ref={group}>
-        <primitive object={knot} scale={R * 0.32} />
         {textures.map((tex, i) => tex && (
           <mesh
             key={sphereOrder[i]}

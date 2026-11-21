@@ -3,7 +3,7 @@ import { toolkit } from '../data/projects.js';
 import { hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
 
-const AsciiKnot = lazy(() => import('./AsciiKnot.jsx'));
+const AsciiOrb = lazy(() => import('./AsciiOrb.jsx'));
 
 export default function About() {
   return (
@@ -12,7 +12,7 @@ export default function About() {
         <div className="ascii-frame">
           <SafeBoundary>
             <Suspense fallback={null}>
-              <AsciiKnot label="The knot from the homepage, drawn in text characters" />
+              <AsciiOrb label="The orb from the homepage, drawn in text characters" />
             </Suspense>
           </SafeBoundary>
         </div>
