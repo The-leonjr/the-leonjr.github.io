@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
+import { useInView } from '../hooks.js';
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
 
 // Two watercolour palettes. The left half of the screen uses LEFT, the right half RIGHT.
 // Crossing the middle with the cursor slowly washes one into the other.
 // The middle colour is near-white paper, so the washes bloom on paper instead of covering it.
 const LEFT = ['#6fd3b2', '#f7f3ea', '#2f9b8c']; // mint and sea-glass teal
-const RIGHT = ['#f291ab', '#f8f2e6', '#a77fd8']; // rose and plum
+const RIGHT = ['#ec7d9b', '#f8f2e6', '#9e4a84']; // rose and a red-leaning plum (no blue)
 // Raw sRGB values: this canvas writes colours straight to the screen with no conversion.
 const PAPER = new THREE.Vector3(0xf4 / 255, 0xf0 / 255, 0xe7 / 255);
 
@@ -78,7 +79,11 @@ const compFrag = /* glsl */ `
     vec2 uv = vUv - tr.xy * uPush;
     // Slightly uneven edges, like pigment soaking into paper.
     uv += (vec2(noise(vUv * 7.0 + uTime * 0.02), noise(vUv * 7.0 + 9.0 - uTime * 0.02)) - 0.5) * 0.014;
-    vec3 g = texture2D(uGrad, uv).rgb;
+    // A small blur softens the hard crest of the 3D water plane into a bleed.
+    vec2 b = 6.0 / uRes;
+    vec3 g = texture2D(uGrad, uv).rgb * 0.4
+      + (texture2D(uGrad, uv + vec2(b.x, 0.0)).rgb + texture2D(uGrad, uv - vec2(b.x, 0.0)).rgb
+      + texture2D(uGrad, uv + vec2(0.0, b.y)).rgb + texture2D(uGrad, uv - vec2(0.0, b.y)).rgb) * 0.15;
 
     // How much pigment sits here: zero where the gradient is at its paper-white colour.
     vec2 px = 5.0 / uRes;
@@ -97,11 +102,11 @@ const compFrag = /* glsl */ `
 
     // Wet edges: pigment collects where the wash changes, so those lines go darker.
     float edge = clamp(length(vec2(cx - c0, cy - c0)) * 9.0, 0.0, 1.0);
-    col = mix(col, col * 0.82, edge * amount);
+    col = mix(col, col * 0.74, edge * amount);
 
     // Granulation inside the pigment, plus a little paper tooth everywhere.
     float gran = noise(gl_FragCoord.xy * 0.3) * noise(gl_FragCoord.xy * 0.07 + 3.0);
-    col *= 1.0 - gran * 0.09 * amount;
+    col *= 1.0 - gran * 0.13 * amount;
     col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.02;
 
     // Fade to plain paper at the bottom so the hero runs straight into the page.
@@ -214,10 +219,15 @@ function WaterPass({ reduced, pointer }) {
     s.t += dt;
     let tx = p.x;
     let ty = p.y;
-    if (!p.active) {
-      // Nobody is pointing: let a slow invisible stir wander so the water never looks frozen.
-      tx = 0.5 + Math.cos(s.t * 0.13) * 0.32;
+    if (!p.active && !reduced) {
+      // Nobody is pointing: a slow invisible stir wanders so the water never looks frozen.
+      // It stays on the side the visitor last pointed at, so the colour doesn't change by itself.
+      const side = p.moved ? (p.x > 0.5 ? 0.75 : 0.25) : 0.3;
+      tx = side + Math.cos(s.t * 0.13) * 0.17;
       ty = 0.55 + Math.sin(s.t * 0.21) * 0.22;
+    } else if (!p.active) {
+      tx = s.x;
+      ty = s.y;
     }
     const k = 1 - Math.pow(1 - CURSOR_LAG, dt * 60);
     s.px = s.x;
@@ -227,8 +237,8 @@ function WaterPass({ reduced, pointer }) {
     const vx = (s.x - s.px) * (p.active ? 9 : 4);
     const vy = (s.y - s.py) * (p.active ? 9 : 4);
 
-    // Slowly wash between palettes depending on which half of the screen the stir is in.
-    const target = s.x > 0.5 ? 1 : 0;
+    // Slowly wash between palettes depending on which half of the screen the cursor is in.
+    const target = p.moved && p.x > 0.5 ? 1 : 0;
     // Uses the real frame time (not the clamped one) so a slow frame rate doesn't stall the fade.
     mix.current += (target - mix.current) * (1 - Math.exp(-Math.min(delta, 0.5) * COLOUR_FADE));
     const cu = colourUniforms.current;
@@ -271,9 +281,17 @@ function WaterPass({ reduced, pointer }) {
   return null;
 }
 
+// Stops drawing while the hero is scrolled out of view, without throwing the canvas away.
+function Pause({ running }) {
+  const setFrameloop = useThree((s) => s.setFrameloop);
+  useEffect(() => setFrameloop(running ? 'always' : 'never'), [running, setFrameloop]);
+  return null;
+}
+
 export default function WaterBackground({ reduced }) {
   const wrap = useRef(null);
-  const pointer = useRef({ x: 0.5, y: 0.5, active: false, last: 0 });
+  const pointer = useRef({ x: 0.3, y: 0.5, active: false, moved: false, last: 0 });
+  const inView = useInView(wrap, '0px');
 
   // Track the cursor over the hero, in 0..1 coordinates with y pointing up.
   useEffect(() => {
@@ -285,6 +303,7 @@ export default function WaterBackground({ reduced }) {
       pointer.current.x = (e.clientX - r.left) / r.width;
       pointer.current.y = 1 - (e.clientY - r.top) / r.height;
       pointer.current.active = true;
+      pointer.current.moved = true;
       pointer.current.last = performance.now();
     };
     const idle = setInterval(() => {
@@ -323,7 +342,7 @@ export default function WaterBackground({ reduced }) {
         cAzimuthAngle={180}
         cPolarAngle={115}
         cDistance={3.9}
-        cameraZoom={1.35}
+        cameraZoom={1.6}
         lightType="3d"
         brightness={1.1}
         envPreset="city"
@@ -337,8 +356,9 @@ export default function WaterBackground({ reduced }) {
 
   return (
     <div ref={wrap} className="water" aria-hidden="true">
-      <ShaderGradientCanvas pointerEvents="none" pixelDensity={1} fov={45} lazyLoad threshold={0}>
+      <ShaderGradientCanvas pointerEvents="none" pixelDensity={1} fov={45} lazyLoad={false}>
         {gradient}
+        <Pause running={inView} />
         <WaterPass reduced={reduced} pointer={pointer} />
       </ShaderGradientCanvas>
     </div>

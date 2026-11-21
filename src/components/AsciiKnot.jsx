@@ -26,7 +26,7 @@ export default function AsciiKnot({ tipped = false, label }) {
     knot.scale.setScalar(1.15);
     if (tipped) {
       knot.rotation.z = 1.25;
-      knot.position.y = -0.5;
+      knot.scale.setScalar(1.0);
     }
     scene.add(knot);
 
@@ -83,6 +83,7 @@ export default function AsciiKnot({ tipped = false, label }) {
       ro.disconnect();
       el.removeChild(effect.domElement);
       renderer.dispose();
+      renderer.forceContextLoss();
     };
   }, [tipped, reduced]);
 

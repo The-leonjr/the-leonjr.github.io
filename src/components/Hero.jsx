@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { site, byId, sphereOrder } from '../data/projects.js';
 import { useReducedMotion, hasWebGL } from '../hooks.js';
+import SafeBoundary from './SafeBoundary.jsx';
 
 // three.js, ShaderGradient and the card sphere load after the text is on screen.
 const WaterBackground = lazy(() => import('./WaterBackground.jsx'));
@@ -27,16 +28,20 @@ export default function Hero() {
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-wash" aria-hidden="true" />
       {webgl && (
-        <Suspense fallback={null}>
-          <WaterBackground reduced={reduced} />
-        </Suspense>
+        <SafeBoundary>
+          <Suspense fallback={null}>
+            <WaterBackground reduced={reduced} />
+          </Suspense>
+        </SafeBoundary>
       )}
       <div className="hero-grid" aria-hidden="true" />
 
       {webgl ? (
-        <Suspense fallback={null}>
-          <CardSphere reduced={reduced} active={active} />
-        </Suspense>
+        <SafeBoundary fallback={<StaticFan />}>
+          <Suspense fallback={null}>
+            <CardSphere reduced={reduced} active={active} />
+          </Suspense>
+        </SafeBoundary>
       ) : (
         <StaticFan />
       )}

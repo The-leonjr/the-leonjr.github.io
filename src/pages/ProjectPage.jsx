@@ -70,14 +70,16 @@ export default function ProjectPage() {
         </div>
       </div>
 
-      <div className={`project-gallery${p.portrait ? ' portrait' : ''}`}>
-        {p.images.map((img) => (
-          <figure key={img.src}>
-            <img src={img.src} alt="" loading="lazy" />
-            <figcaption>{img.caption}</figcaption>
-          </figure>
-        ))}
-      </div>
+      {p.images.length > 0 && (
+        <div className={`project-gallery${p.portrait ? ' portrait' : ''}`}>
+          {p.images.map((img) => (
+            <figure key={img.src}>
+              <img src={img.src} alt="" loading="lazy" />
+              <figcaption>{img.caption}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
 
       <nav className="next-project" aria-label="Next project">
         <Link to="/#work">← All work</Link>

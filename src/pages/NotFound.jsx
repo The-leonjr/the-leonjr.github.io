@@ -10,14 +10,14 @@ export default function NotFound() {
   }, []);
   return (
     <main id="main" className="not-found">
-      <div className="ascii-frame small">
-        {hasWebGL() && (
+      {hasWebGL() && (
+        <div className="ascii-frame small">
           <Suspense fallback={null}>
             <AsciiKnot tipped label="The homepage knot, tipped over" />
           </Suspense>
-        )}
-      </div>
-      <h1>This page wandered off.</h1>
+        </div>
+      )}
+      <h1>Nothing lives at this address.</h1>
       <p>The link might be old, or the page moved when the site was rebuilt.</p>
       <Link className="btn" to="/">Back to the homepage</Link>
     </main>

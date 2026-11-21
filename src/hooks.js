@@ -17,7 +17,9 @@ export function hasWebGL() {
   if (webglSupport === undefined) {
     try {
       const c = document.createElement('canvas');
-      webglSupport = !!(c.getContext('webgl2') || c.getContext('webgl'));
+      const gl = c.getContext('webgl2') || c.getContext('webgl');
+      webglSupport = !!gl;
+      gl?.getExtension('WEBGL_lose_context')?.loseContext(); // give the test context back
     } catch {
       webglSupport = false;
     }

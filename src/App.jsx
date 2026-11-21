@@ -8,7 +8,7 @@ import NotFound from './pages/NotFound.jsx';
 
 // Scroll to #work / #about / #contact when the URL has one, otherwise to the top.
 function ScrollManager() {
-  const { pathname, hash } = useLocation();
+  const { pathname, hash, key } = useLocation();
   useEffect(() => {
     if (hash) {
       const el = document.getElementById(hash.slice(1));
@@ -17,8 +17,9 @@ function ScrollManager() {
         return;
       }
     }
-    window.scrollTo(0, 0);
-  }, [pathname, hash]);
+    // A new page starts at the top straight away, without gliding up the old one.
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [pathname, hash, key]);
   return null;
 }
 

@@ -12,7 +12,7 @@ export const site = {
   pitch:
     'I build things you can poke at: an app that finds your meme twin, a phone button that runs a stock robot, and a game about one unanswered message.',
   fact: 'Applied AI · Temasek Polytechnic · Singapore',
-  email: 'Leonjr.chua.008@gmail.com',
+  email: 'leonjr.chua.008@gmail.com',
   github: 'https://github.com/The-leonjr',
   githubHandle: '@The-leonjr',
   linkedin: 'https://www.linkedin.com/in/leon-jr-chua-750851373/',
@@ -66,7 +66,6 @@ export const projects = [
       },
     ],
     images: [
-      { src: '/images/skip-1.webp', caption: 'The common room.' },
       { src: '/images/skip-2.webp', caption: 'The title screen.' },
     ],
   },
@@ -98,7 +97,7 @@ export const projects = [
         body: 'Photo validation, AI inference, database writes and signed-in actions all live in separate cloud services. Most of the work was in the steps between a successful analysis and a result someone can actually share.',
       },
     ],
-    images: [{ src: '/images/memematch-1.webp', caption: 'The upload and matching flow.' }],
+    images: [],
   },
   {
     id: 'analysets',
@@ -129,7 +128,6 @@ export const projects = [
       },
     ],
     images: [
-      { src: '/images/analysets-1.webp', caption: 'The dashboard after a run.' },
       { src: '/images/analysets-2.webp', caption: 'The UiPath workflow.' },
     ],
   },
@@ -161,7 +159,7 @@ export const projects = [
         body: 'A Streamlit interface asks for experience, role, work setup and technologies, turns the answers into model inputs and shows the estimate. It connects a notebook workflow to something a person can try.',
       },
     ],
-    images: [{ src: '/images/salarycalc-1.webp', caption: 'The salary estimator.' }],
+    images: [],
   },
   {
     id: 'aurafarm',
@@ -219,7 +217,6 @@ export const projects = [
       },
     ],
     images: [
-      { src: '/images/animal-adoption-1.webp', caption: 'An animal profile.' },
       { src: '/images/animal-adoption-2.webp', caption: 'The listings.' },
     ],
   },

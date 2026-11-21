@@ -19,7 +19,7 @@ const POINTS = [
 const CARD_W = 640;
 const IMG_H = 342;
 const PAD = 16;
-const LABEL_H = 74;
+const LABEL_H = 88;
 const CARD_H = PAD + IMG_H + LABEL_H;
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -38,7 +38,7 @@ async function makeCardTexture(project) {
   img.src = project.cover;
   await img.decode();
   try {
-    await document.fonts.load('600 36px Fredoka');
+    await document.fonts.load('600 46px Fredoka');
   } catch {
     /* fall back to the default font */
   }
@@ -62,10 +62,10 @@ async function makeCardTexture(project) {
   ctx.restore();
 
   ctx.fillStyle = '#352b25';
-  ctx.font = '600 36px Fredoka, "Segoe UI", sans-serif';
+  ctx.font = '600 46px Fredoka, "Segoe UI", sans-serif';
   ctx.textBaseline = 'middle';
   ctx.fillText(project.name, PAD + 6, PAD + IMG_H + LABEL_H / 2);
-  ctx.fillStyle = '#e0613f';
+  ctx.fillStyle = '#f47a5a';
   ctx.textAlign = 'right';
   ctx.fillText('↗', CARD_W - PAD - 6, PAD + IMG_H + LABEL_H / 2);
 
@@ -79,7 +79,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
   const navigate = useNavigate();
   const { camera, size } = useThree();
   const group = useRef();
-  const knot = useMemo(() => buildKnot(), []);
+  const knot = useMemo(() => buildKnot({ lit: true }), []);
   const glow = useMemo(() => {
     const c = document.createElement('canvas');
     c.width = c.height = 128;
@@ -94,33 +94,51 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     return t;
   }, []);
 
+  // Each card appears as soon as its own screenshot is ready, instead of waiting for all six.
   const [textures, setTextures] = useState([]);
   useEffect(() => {
     let alive = true;
-    Promise.all(sphereOrder.map((id) => makeCardTexture(byId[id]))).then((t) => alive && setTextures(t));
+    const made = [];
+    sphereOrder.forEach((id, i) =>
+      makeCardTexture(byId[id]).then((t) => {
+        made.push(t);
+        if (!alive) return t.dispose();
+        setTextures((prev) => {
+          const next = [...prev];
+          next[i] = t;
+          return next;
+        });
+      }),
+    );
     return () => {
       alive = false;
+      made.forEach((t) => t.dispose());
     };
   }, []);
-  useEffect(() => () => textures.forEach((t) => t.dispose()), [textures]);
 
   const mobile = size.width < 700;
   const R = mobile ? 1.7 : 2.5;
-  const cardW = mobile ? 1.5 : 1.6;
+  const cardW = mobile ? 1.6 : 1.6;
   const cardH = (cardW * CARD_H) / CARD_W;
 
-  // Pull the camera back far enough that the whole sphere fits the canvas.
+  // Pull the camera back far enough that the whole sphere fits the canvas. On wider screens the
+  // sphere sits a little right of centre so it doesn't run into the name in the bottom-left corner.
   useEffect(() => {
     const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const aspect = size.width / size.height;
-    const needH = (R + cardH * 0.75) / half;
-    const needW = (R + cardW * (mobile ? 0.5 : 0.7)) / (half * aspect);
+    const shift = mobile ? 0 : size.width * 0.07;
+    const aspect = (size.width - shift * 2) / size.height;
+    const short = !mobile && size.height < 780 ? 1.1 : 1;
+    const needH = ((R + cardH * 0.75) / half) * short;
+    const needW = (R + cardW * (mobile ? 0.45 : 0.7)) / (half * aspect);
     camera.position.set(0, 0, Math.max(needH, needW) + R * (mobile ? 0.1 : 0.25));
+    if (shift) camera.setViewOffset(size.width, size.height, -shift, 0, size.width, size.height);
+    else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }, [camera, size, R, cardW, cardH, mobile]);
 
   const cards = useRef([]);
-  const state = useRef({ yaw: 0, pitch: -0.08, start: null });
+  const state = useRef({ yaw: 0, pitch: -0.08 });
+  const born = useRef([]);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const euler = useMemo(() => new THREE.Euler(), []);
 
@@ -128,17 +146,17 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     const dt = Math.min(delta, 1 / 20);
     const st = state.current;
     const d = drag.current;
-    if (st.start === null && textures.length) st.start = s.clock.elapsedTime;
 
     // Rotation: follow the drag, keep a little momentum, then idle-spin when nobody is touching it.
     const focusIndex = active ? sphereOrder.indexOf(active) : -1;
     if (focusIndex >= 0) {
       // Keyboard focus: turn the sphere so that card faces the visitor.
       const p = POINTS[focusIndex];
-      const targetYaw = -Math.atan2(p.x, p.z);
+      const targetYaw = Math.atan2(-p.x, p.z);
+      const targetPitch = Math.atan2(p.y, Math.hypot(p.x, p.z));
       const dyaw = Math.atan2(Math.sin(targetYaw - st.yaw), Math.cos(targetYaw - st.yaw));
       st.yaw += dyaw * Math.min(1, dt * 5);
-      st.pitch += (Math.asin(p.y) * 0.8 - st.pitch) * Math.min(1, dt * 5);
+      st.pitch += (targetPitch - st.pitch) * Math.min(1, dt * 5);
     } else if (d.down) {
       st.yaw += d.dx;
       st.pitch = THREE.MathUtils.clamp(st.pitch + d.dy, -0.7, 0.7);
@@ -154,12 +172,13 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
     group.current.rotation.set(st.pitch, st.yaw, 0, 'XYZ');
     knot.rotation.y = THREE.MathUtils.degToRad(13) + s.clock.elapsedTime * (reduced ? 0 : 0.25);
 
-    // Entrance: cards start stacked in the middle and deal out to their places.
-    const since = st.start === null ? 0 : s.clock.elapsedTime - st.start;
+    // Entrance: each card starts in the middle and deals out to its place once its image is ready.
     euler.set(st.pitch, st.yaw, 0, 'XYZ');
     cards.current.forEach((mesh, i) => {
       if (!mesh) return;
-      const k = reduced ? 1 : THREE.MathUtils.clamp((since - i * 0.08) / 1.1, 0, 1);
+      if (born.current[i] === undefined) born.current[i] = s.clock.elapsedTime + i * 0.06;
+      const since = s.clock.elapsedTime - born.current[i];
+      const k = reduced ? 1 : THREE.MathUtils.clamp(since / 1.1, 0, 1);
       const ease = 1 - Math.pow(1 - k, 3);
       mesh.position.copy(POINTS[i]).multiplyScalar(R * ease);
       // Cards always face the camera so the screenshots stay readable.
@@ -170,19 +189,21 @@ function Sphere({ reduced, active, drag, hovered, setHovered }) {
       const target = (isActive ? 1.28 : 1) * (0.25 + 0.75 * ease);
       const sc = mesh.scale.x + (target - mesh.scale.x) * Math.min(1, dt * 10);
       mesh.scale.setScalar(sc);
-      mesh.material.opacity = (0.45 + 0.55 * front) * Math.min(1, k * 3);
+      mesh.material.opacity = (0.6 + 0.4 * front) * Math.min(1, k * 3);
       mesh.renderOrder = isActive ? 10 : 0;
     });
   });
 
   return (
     <>
+      <ambientLight intensity={1.1} />
+      <directionalLight position={[3, 4, 5]} intensity={1.8} />
       <sprite scale={[R * 1.3, R * 1.3, 1]}>
         <spriteMaterial map={glow} transparent depthWrite={false} toneMapped={false} />
       </sprite>
       <group ref={group}>
         <primitive object={knot} scale={R * 0.32} />
-        {textures.map((tex, i) => (
+        {textures.map((tex, i) => tex && (
           <mesh
             key={sphereOrder[i]}
             ref={(m) => (cards.current[i] = m)}
@@ -239,9 +260,11 @@ export default function CardSphere({ reduced, active }) {
     d.dx += mx * 0.006;
     d.dy += my * 0.004;
   };
-  const end = () => {
+  const end = (e) => {
     const d = drag.current;
     d.down = false;
+    // Touch has no "pointer out", so clear the highlighted card when the finger lifts.
+    if (e?.pointerType && e.pointerType !== 'mouse') setHovered(null);
     wrap.current?.classList.remove('dragging');
     setTimeout(() => (d.moved = false), 0);
   };

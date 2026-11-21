@@ -37,9 +37,9 @@ fs.writeFileSync(
   path.join(dist, '404.html'),
   withMeta(base, {
     title: `Page not found · ${site.name}`,
-    description: 'This page wandered off.',
+    description: 'Nothing lives at this address.',
     url: `${site.url}/`,
     image: `${site.url}/og.jpg`,
-  }),
+  }).replace('</head>', '  <meta name="robots" content="noindex" />\n  </head>'),
 );
 console.log(`Wrote ${projects.length} project pages and 404.html`);
