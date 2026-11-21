@@ -18,8 +18,8 @@ const SLIDERS = [
     ['bottomFade', 'Bottom fade', 0, 0.4, 0.01],
   ]],
   ['Extras (start at 0)', [
-    ['wisps', 'Wisps', 0, 3, 0.05],
-    ['swirls', 'Swirls', 0, 2, 0.05],
+    ['wisps', 'Wisps (tendrils)', 0, 3, 0.05],
+    ['swirls', 'Swirls (wake curls)', 0, 3, 0.05],
   ]],
   ['Quality', [
     ['detail', 'Detail (higher = smoother, heavier)', 0.25, 1, 0.05],

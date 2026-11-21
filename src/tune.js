@@ -4,19 +4,19 @@
 // When you're happy, press "Copy settings" in the panel and paste the result over DEFAULTS.
 
 export const DEFAULTS = {
-  minWater: 0.1, // the water never thins below this
-  linger: 0.008, // how fast dragged colour settles back (lower = lingers longer)
-  drag: 0.9, // how far colour travels with the cursor
-  strokeWidth: 0.11, // width of the stroke the cursor leaves
-  stirLife: 0.965, // how long the cursor's stir keeps moving the water
+  minWater: 0.5, // the water never thins below this
+  linger: 0.018, // how fast dragged colour settles back (lower = lingers longer)
+  drag: 1.65, // how far colour travels with the cursor
+  strokeWidth: 0.04, // width of the stroke the cursor leaves
+  stirLife: 0.912, // how long the cursor's stir keeps moving the water
   cursorLag: 0.08, // lower = the stir point trails further behind the cursor
-  trailDark: 0.22, // how much darker the wet trail is
-  wetEdges: 10, // how strong the darker wet edges are
-  wisps: 0, // frays the dragged colour into wisps (0 = off)
-  swirls: 0, // little eddies curling off the stroke (0 = off)
-  rightBoost: 0, // extra pigment on the rose side
-  bottomFade: 0.14, // how much of the bottom fades into the page
-  detail: 0.5, // calculation resolution: higher = smoother edges, more GPU work
+  trailDark: 0.52, // how much darker the wet trail is
+  wetEdges: 13, // how strong the darker wet edges are
+  wisps: 0, // swirly tendrils inside the moving water (0 = off)
+  swirls: 0, // a pair of curls left behind the cursor, like a wake (0 = off)
+  rightBoost: 0.4, // extra pigment on the rose side
+  bottomFade: 0.16, // how much of the bottom fades into the page
+  detail: 1, // calculation resolution: higher = smoother edges, more GPU work
   leftMain: '#5fcca6',
   leftLight: '#cfeadf',
   leftDeep: '#23897b',

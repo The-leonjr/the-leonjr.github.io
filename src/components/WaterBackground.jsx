@@ -45,7 +45,11 @@ const velFrag = /* glsl */ `
   uniform float uAspect;
   uniform float uDecay;
   uniform float uRadius;
-  uniform float uSwirl;
+  uniform float uWisps;
+  uniform float uTime;
+  uniform vec4 uVort[8];
+  ${noiseGLSL}
+
   void main() {
     vec4 here = texture2D(uPrev, vUv);
     vec4 prev = texture2D(uPrev, vUv - here.xy * 0.5);
@@ -53,11 +57,27 @@ const velFrag = /* glsl */ `
     d.x *= uAspect;
     float g = exp(-dot(d, d) / (uRadius * uRadius));
     vec2 v = prev.xy * uDecay + uVel * g;
-    // Optional swirls: a pair of small eddies spinning opposite ways at the edges of the stroke.
-    float ring = exp(-dot(d, d) / (uRadius * uRadius * 4.0)) - g;
-    float spin = sign(uVel.x * d.y - uVel.y * d.x);
-    vec2 around = vec2(-d.y, d.x) / (length(d) + 0.02);
-    v += around * spin * ring * length(uVel) * uSwirl;
+
+    // Wisps: where the water is moving, gently turn its direction by an amount that varies
+    // smoothly across the screen. Turning never adds speed, so it can't run away, and the
+    // colour carried along it pulls out into tendrils.
+    vec2 p = vec2(vUv.x * uAspect, vUv.y) * 9.0 + vec2(uTime * 0.25, -uTime * 0.18);
+    float turn = (noise(p) - 0.5) * 2.0 * uWisps * 0.22;
+    float cs = cos(turn), sn = sin(turn);
+    v = vec2(v.x * cs - v.y * sn, v.x * sn + v.y * cs);
+
+    // Swirls: small spinning spots dropped either side of the cursor's path, turning opposite
+    // ways so the stroke ends in a pair of curls, like the wake behind a hand.
+    for (int i = 0; i < 8; i++) {
+      vec4 k = uVort[i];
+      if (k.z == 0.0) continue;
+      vec2 q = vUv - k.xy;
+      q.x *= uAspect;
+      float f = exp(-dot(q, q) / (k.w * k.w));
+      vec2 spinV = vec2(-q.y, q.x) * k.z * f;
+      spinV.x /= uAspect;
+      v += spinV;
+    }
     float wet = max(prev.z * 0.993, g * clamp(length(uVel) * 60.0, 0.0, 1.0));
     gl_FragColor = vec4(clamp(v, -0.05, 0.05), wet, 1.0);
   }
@@ -74,16 +94,12 @@ const dyeFrag = /* glsl */ `
   uniform float uRelax;
   uniform float uDrag;
   uniform float uMin;
-  uniform float uWisps;
   uniform float uRightBoost;
   uniform vec3 uL1, uL2, uL3, uR1, uR2, uR3;
   ${noiseGLSL}
   void main() {
     vec2 v = texture2D(uVel, vUv).xy;
-    // Optional wisps: a smooth, large-scale noise bends the drag so the colour frays.
-    // (Kept low-frequency on purpose: fine noise here is what made the edges jagged before.)
-    vec2 wisp = vec2(noise(vUv * 7.0 + uTime * 0.12), noise(vUv * 7.0 + 11.0 - uTime * 0.12)) - 0.5;
-    vec4 carried = texture2D(uDye, vUv - v * uDrag - wisp * length(v) * uWisps);
+    vec4 carried = texture2D(uDye, vUv - v * uDrag);
 
     // ShaderGradient's output as weights for the three colour slots.
     vec3 g = max(texture2D(uGrad, vUv).rgb, 0.0);
@@ -159,10 +175,9 @@ function applySettings(res) {
   const d = res.dyeMat.uniforms;
   const c = res.compMat.uniforms;
   v.uRadius.value = params.strokeWidth;
-  v.uSwirl.value = params.swirls;
+  v.uWisps.value = params.wisps;
   d.uDrag.value = params.drag;
   d.uMin.value = params.minWater;
-  d.uWisps.value = params.wisps;
   d.uRightBoost.value = params.rightBoost;
   setHex(d.uL1.value, params.leftMain);
   setHex(d.uL2.value, params.leftLight);
@@ -180,6 +195,8 @@ function WaterPass({ reduced, pointer }) {
   const stir = useRef({ x: 0.3, y: 0.5, px: 0.3, py: 0.5, t: 0 });
   const first = useRef(true);
   const detail = useRef(0);
+  const vortices = useRef([]); // each: { x, y, s, r, age }
+  const lastSpawn = useRef(0);
 
   const res = useMemo(() => {
     const quad = new THREE.PlaneGeometry(2, 2);
@@ -193,7 +210,9 @@ function WaterPass({ reduced, pointer }) {
       uAspect: { value: 1 },
       uDecay: { value: 0.965 },
       uRadius: { value: 0.11 },
-      uSwirl: { value: 0 },
+      uWisps: { value: 0 },
+      uTime: { value: 0 },
+      uVort: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },
     });
     const dyeMat = mat(dyeFrag, {
       uDye: { value: null },
@@ -203,7 +222,6 @@ function WaterPass({ reduced, pointer }) {
       uRelax: { value: 1 },
       uDrag: { value: 0.9 },
       uMin: { value: 0.1 },
-      uWisps: { value: 0 },
       uRightBoost: { value: 0 },
       uL1: { value: new THREE.Vector3() },
       uL2: { value: new THREE.Vector3() },
@@ -296,6 +314,36 @@ function WaterPass({ reduced, pointer }) {
     // 1. ShaderGradient's flowing shapes into a texture.
     gl.setRenderTarget(res.grad);
     gl.render(scene, camera);
+
+    // Drop a pair of wake curls behind the cursor while it moves (Swirls slider).
+    const speed = Math.hypot(vx, vy);
+    const list = vortices.current;
+    if (params.swirls > 0 && p.active && speed > 0.0015 && s.t - lastSpawn.current > 0.09) {
+      lastSpawn.current = s.t;
+      const mx = vx / speed;
+      const my = vy / speed;
+      const side = params.strokeWidth * 1.1; // just outside the stroke
+      const back = params.strokeWidth * 0.8; // a little behind the cursor
+      const r = params.strokeWidth * 0.9;
+      const strength = (params.swirls * Math.min(speed, 0.02) * 0.8) / r;
+      // Left of the path spins one way, right of the path the other.
+      list.push({ x: s.x - mx * back - my * side, y: s.y - my * back + mx * side, s: strength, r, age: 0 });
+      list.push({ x: s.x - mx * back + my * side, y: s.y - my * back - mx * side, s: -strength, r, age: 0 });
+      while (list.length > 8) list.shift();
+    }
+    const life = 1.2;
+    for (let i = list.length - 1; i >= 0; i--) {
+      list[i].age += dt;
+      if (list[i].age > life) list.splice(i, 1);
+    }
+    const slots = res.velMat.uniforms.uVort.value;
+    slots.forEach((slot, i) => {
+      const k = list[i];
+      if (!k) return slot.set(0, 0, 0, 1);
+      const fade = (1 - k.age / life) ** 2;
+      slot.set(k.x, k.y, k.s * fade * frames, k.r);
+    });
+    res.velMat.uniforms.uTime.value = state.clock.elapsedTime;
 
     // 2. Stir the velocity field.
     res.velMat.uniforms.uPrev.value = res.vel[0].texture;
