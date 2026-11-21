@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
 import { useInView } from '../hooks.js';
+import { params } from '../tune.js';
 
 // How it works, in three layers:
 // 1. ShaderGradient draws the slow, flowing water shapes. Its three colours are set to pure red,
@@ -12,21 +13,12 @@ import { useInView } from '../hooks.js';
 // 3. The cursor stirs a velocity field. The dye is carried along by it (dragged, not pushed away),
 //    then slowly relaxes back to the flowing base.
 
-// Colour slots per side: [main pigment, light wash, deep pigment]. No blue, no orange.
-const LEFT = ['#5fcca6', '#cfeadf', '#23897b'];
-const RIGHT = ['#ea7896', '#f4d6de', '#93437c'];
+// Every number and colour that shapes the feel lives in src/tune.js (and the ?tune panel).
+// Colour slots per side: main pigment, light wash, deep pigment. No blue, no orange.
 
 // Raw sRGB values: this canvas writes colours straight to the screen with no conversion.
 const hex = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
 const PAPER = hex('#f4f0e7');
-
-// Feel. Lower RELAX = the dragged colour lingers longer before settling back.
-const MIN_WATER = 0.1; // the water never thins below this, so it is always there
-const RELAX = 0.008; // per frame at 60fps: about 2 seconds to half-settle, 6+ to settle fully
-const DRAG = 0.9; // how far colour travels with the cursor
-const VEL_DECAY = 0.965; // how long the cursor's stir keeps moving the water
-const STIR_RADIUS = 0.11; // size of the "hand" in the water
-const CURSOR_LAG = 0.08; // lower = the stir point trails further behind the cursor
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -53,6 +45,7 @@ const velFrag = /* glsl */ `
   uniform float uAspect;
   uniform float uDecay;
   uniform float uRadius;
+  uniform float uSwirl;
   void main() {
     vec4 here = texture2D(uPrev, vUv);
     vec4 prev = texture2D(uPrev, vUv - here.xy * 0.5);
@@ -60,6 +53,11 @@ const velFrag = /* glsl */ `
     d.x *= uAspect;
     float g = exp(-dot(d, d) / (uRadius * uRadius));
     vec2 v = prev.xy * uDecay + uVel * g;
+    // Optional swirls: a pair of small eddies spinning opposite ways at the edges of the stroke.
+    float ring = exp(-dot(d, d) / (uRadius * uRadius * 4.0)) - g;
+    float spin = sign(uVel.x * d.y - uVel.y * d.x);
+    vec2 around = vec2(-d.y, d.x) / (length(d) + 0.02);
+    v += around * spin * ring * length(uVel) * uSwirl;
     float wet = max(prev.z * 0.993, g * clamp(length(uVel) * 60.0, 0.0, 1.0));
     gl_FragColor = vec4(clamp(v, -0.05, 0.05), wet, 1.0);
   }
@@ -76,11 +74,16 @@ const dyeFrag = /* glsl */ `
   uniform float uRelax;
   uniform float uDrag;
   uniform float uMin;
+  uniform float uWisps;
+  uniform float uRightBoost;
   uniform vec3 uL1, uL2, uL3, uR1, uR2, uR3;
   ${noiseGLSL}
   void main() {
     vec2 v = texture2D(uVel, vUv).xy;
-    vec4 carried = texture2D(uDye, vUv - v * uDrag);
+    // Optional wisps: a smooth, large-scale noise bends the drag so the colour frays.
+    // (Kept low-frequency on purpose: fine noise here is what made the edges jagged before.)
+    vec2 wisp = vec2(noise(vUv * 7.0 + uTime * 0.12), noise(vUv * 7.0 + 11.0 - uTime * 0.12)) - 0.5;
+    vec4 carried = texture2D(uDye, vUv - v * uDrag - wisp * length(v) * uWisps);
 
     // ShaderGradient's output as weights for the three colour slots.
     vec3 g = max(texture2D(uGrad, vUv).rgb, 0.0);
@@ -94,7 +97,7 @@ const dyeFrag = /* glsl */ `
     vec3 c2 = mix(uL2, uR2, side);
     vec3 c3 = mix(uL3, uR3, side);
     vec3 pigment = w.r * c1 + w.g * c2 + w.b * c3;
-    float amount = mix(uMin, 0.88, clamp(w.r * 0.85 + w.b * 1.15, 0.0, 1.0));
+    float amount = mix(uMin + side * uRightBoost * 0.5, 0.9, clamp(w.r * 0.85 + w.b * 1.15 + side * uRightBoost, 0.0, 1.0));
 
     gl_FragColor = mix(carried, vec4(pigment, amount), uRelax);
   }
@@ -109,20 +112,23 @@ const compFrag = /* glsl */ `
   uniform vec3 uPaper;
   uniform vec2 uRes;
   uniform float uTime;
+  uniform float uTrailDark;
+  uniform float uEdges;
+  uniform float uBottomFade;
   ${noiseGLSL}
   void main() {
     vec4 d = texture2D(uDye, vUv);
     float wet = texture2D(uVel, vUv).z;
 
     // The trail reads as a heavier stroke of the same colour.
-    float amount = clamp(d.a + wet * 0.22, 0.0, 1.0);
+    float amount = clamp(d.a + wet * uTrailDark, 0.0, 1.0);
     vec3 col = mix(uPaper, d.rgb, amount * 0.94);
 
     // Wet edges: pigment collects where the wash changes.
     vec2 px = 4.0 / uRes;
     float ax = texture2D(uDye, vUv + vec2(px.x, 0.0)).a;
     float ay = texture2D(uDye, vUv + vec2(0.0, px.y)).a;
-    float edge = clamp(length(vec2(ax - d.a, ay - d.a)) * 10.0, 0.0, 1.0);
+    float edge = clamp(length(vec2(ax - d.a, ay - d.a)) * uEdges, 0.0, 1.0);
     col = mix(col, col * 0.76, edge * amount);
 
     // Granulation inside the pigment, plus a little paper tooth everywhere.
@@ -131,7 +137,7 @@ const compFrag = /* glsl */ `
     col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * 0.018;
 
     // Only the last strip fades to paper, so the hero runs straight into the page.
-    col = mix(uPaper, col, smoothstep(0.0, 0.14, vUv.y));
+    col = mix(uPaper, col, smoothstep(0.0, max(uBottomFade, 0.001), vUv.y));
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -145,10 +151,35 @@ function target(w, h) {
   });
 }
 
+const setHex = (vec, h) => vec.set(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
+
+// Copies the live settings (src/tune.js) into the shaders. Cheap enough to do every frame.
+function applySettings(res) {
+  const v = res.velMat.uniforms;
+  const d = res.dyeMat.uniforms;
+  const c = res.compMat.uniforms;
+  v.uRadius.value = params.strokeWidth;
+  v.uSwirl.value = params.swirls;
+  d.uDrag.value = params.drag;
+  d.uMin.value = params.minWater;
+  d.uWisps.value = params.wisps;
+  d.uRightBoost.value = params.rightBoost;
+  setHex(d.uL1.value, params.leftMain);
+  setHex(d.uL2.value, params.leftLight);
+  setHex(d.uL3.value, params.leftDeep);
+  setHex(d.uR1.value, params.rightMain);
+  setHex(d.uR2.value, params.rightLight);
+  setHex(d.uR3.value, params.rightDeep);
+  c.uTrailDark.value = params.trailDark;
+  c.uEdges.value = params.wetEdges;
+  c.uBottomFade.value = params.bottomFade;
+}
+
 function WaterPass({ reduced, pointer }) {
   const { gl, scene, camera, size } = useThree();
   const stir = useRef({ x: 0.3, y: 0.5, px: 0.3, py: 0.5, t: 0 });
   const first = useRef(true);
+  const detail = useRef(0);
 
   const res = useMemo(() => {
     const quad = new THREE.PlaneGeometry(2, 2);
@@ -160,8 +191,9 @@ function WaterPass({ reduced, pointer }) {
       uMouse: { value: new THREE.Vector2(0.3, 0.5) },
       uVel: { value: new THREE.Vector2() },
       uAspect: { value: 1 },
-      uDecay: { value: VEL_DECAY },
-      uRadius: { value: STIR_RADIUS },
+      uDecay: { value: 0.965 },
+      uRadius: { value: 0.11 },
+      uSwirl: { value: 0 },
     });
     const dyeMat = mat(dyeFrag, {
       uDye: { value: null },
@@ -169,14 +201,16 @@ function WaterPass({ reduced, pointer }) {
       uGrad: { value: null },
       uTime: { value: 0 },
       uRelax: { value: 1 },
-      uDrag: { value: DRAG },
-      uMin: { value: MIN_WATER },
-      uL1: { value: hex(LEFT[0]) },
-      uL2: { value: hex(LEFT[1]) },
-      uL3: { value: hex(LEFT[2]) },
-      uR1: { value: hex(RIGHT[0]) },
-      uR2: { value: hex(RIGHT[1]) },
-      uR3: { value: hex(RIGHT[2]) },
+      uDrag: { value: 0.9 },
+      uMin: { value: 0.1 },
+      uWisps: { value: 0 },
+      uRightBoost: { value: 0 },
+      uL1: { value: new THREE.Vector3() },
+      uL2: { value: new THREE.Vector3() },
+      uL3: { value: new THREE.Vector3() },
+      uR1: { value: new THREE.Vector3() },
+      uR2: { value: new THREE.Vector3() },
+      uR3: { value: new THREE.Vector3() },
     });
     const compMat = mat(compFrag, {
       uDye: { value: null },
@@ -184,6 +218,9 @@ function WaterPass({ reduced, pointer }) {
       uPaper: { value: PAPER },
       uRes: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
+      uTrailDark: { value: 0.22 },
+      uEdges: { value: 10 },
+      uBottomFade: { value: 0.14 },
     });
     const sceneFor = (m) => {
       const s = new THREE.Scene();
@@ -204,14 +241,21 @@ function WaterPass({ reduced, pointer }) {
     };
   }, []);
 
-  useEffect(() => {
+  // Size the working textures from the canvas size and the "detail" setting.
+  const resize = () => {
     const v = gl.getDrawingBufferSize(new THREE.Vector2());
-    res.grad.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1));
-    res.dye.forEach((t) => t.setSize(Math.max(2, v.x >> 1), Math.max(2, v.y >> 1)));
+    const k = params.detail;
+    const w = Math.max(2, Math.round(v.x * k));
+    const h = Math.max(2, Math.round(v.y * k));
+    res.grad.setSize(w, h);
+    res.dye.forEach((t) => t.setSize(w, h));
+    res.vel.forEach((t) => t.setSize(Math.max(2, Math.round(w / 2)), Math.max(2, Math.round(h / 2))));
     res.compMat.uniforms.uRes.value.set(v.x, v.y);
     res.velMat.uniforms.uAspect.value = size.width / Math.max(1, size.height);
+    detail.current = k;
     first.current = true;
-  }, [gl, res, size]);
+  };
+  useEffect(resize, [gl, res, size]);
 
   useEffect(
     () => () => {
@@ -224,6 +268,8 @@ function WaterPass({ reduced, pointer }) {
   useFrame((state, delta) => {
     const dt = Math.min(delta, 1 / 20);
     const frames = dt * 60;
+    if (params.detail !== detail.current) resize();
+    applySettings(res);
 
     // Where the "hand in the water" is. It trails behind the real cursor.
     const s = stir.current;
@@ -239,7 +285,7 @@ function WaterPass({ reduced, pointer }) {
       ty = 0.55 + Math.sin(s.t * 0.23) * 0.25;
       gain = 0.35;
     }
-    const k = 1 - Math.pow(1 - CURSOR_LAG, frames);
+    const k = 1 - Math.pow(1 - params.cursorLag, frames);
     s.px = s.x;
     s.py = s.y;
     s.x += (tx - s.x) * k;
@@ -255,7 +301,7 @@ function WaterPass({ reduced, pointer }) {
     res.velMat.uniforms.uPrev.value = res.vel[0].texture;
     res.velMat.uniforms.uMouse.value.set(s.x, s.y);
     res.velMat.uniforms.uVel.value.set(vx, vy);
-    res.velMat.uniforms.uDecay.value = Math.pow(VEL_DECAY, frames);
+    res.velMat.uniforms.uDecay.value = Math.pow(params.stirLife, frames);
     gl.setRenderTarget(res.vel[1]);
     gl.render(res.velScene, res.cam);
     res.vel.reverse();
@@ -265,7 +311,7 @@ function WaterPass({ reduced, pointer }) {
     res.dyeMat.uniforms.uVel.value = res.vel[0].texture;
     res.dyeMat.uniforms.uGrad.value = res.grad.texture;
     res.dyeMat.uniforms.uTime.value = state.clock.elapsedTime;
-    res.dyeMat.uniforms.uRelax.value = first.current || reduced ? 1 : 1 - Math.pow(1 - RELAX, frames);
+    res.dyeMat.uniforms.uRelax.value = first.current || reduced ? 1 : 1 - Math.pow(1 - params.linger, frames);
     first.current = false;
     gl.setRenderTarget(res.dye[1]);
     gl.render(res.dyeScene, res.cam);

@@ -5,6 +5,7 @@ import Footer from './components/Footer.jsx';
 import Home from './pages/Home.jsx';
 import ProjectPage from './pages/ProjectPage.jsx';
 import NotFound from './pages/NotFound.jsx';
+import TunePanel from './components/TunePanel.jsx';
 
 // Scroll to #work / #about / #contact when the URL has one, otherwise to the top.
 function ScrollManager() {
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />
+      <TunePanel />
     </>
   );
 }
