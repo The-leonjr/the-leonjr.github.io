@@ -20,6 +20,11 @@ const SLIDERS = [
     ['ringTilt', 'Look down onto ring', 0, 0.9, 0.01],
     ['ringLean', 'Ring lean (+ = left side up)', -0.6, 0.6, 0.01],
     ['spinDir', 'First turn direction (-1 or 1)', -1, 1, 2],
+    ['restSpin', 'SKIP orbit speed at rest', 0, 1, 0.01],
+    ['orbitPath', 'Dotted orbit path', 0, 1, 0.05],
+    ['settle', 'Tip back upright (0 = stays)', 0, 0.1, 0.005],
+    ['freeOrbit', 'Free orbits (0 off, 1 on)', 0, 1, 1],
+    ['freeDelay', 'Seconds before drifting', 1, 15, 0.5],
   ]],
   ['Fade into the page', [
     ['fadeStart', 'Fade starts (share of hero)', 0, 0.6, 0.01],
