@@ -152,9 +152,9 @@ button { font: inherit; }
   font: 23px/1 var(--hand); color: var(--coral-ink); pointer-events: none; transition: opacity 0.8s;
 }
 .orb-hint span { display: inline-block; animation: sway 2.6s ease-in-out infinite; color: var(--coral-ink); }
-/* Style 1: dark ink with a soft cream halo, readable over green and pink water alike. */
+/* Style 1: burgundy ink with a soft cream halo, readable over green and pink water alike. */
 .orb-hint.ink {
-  color: var(--ink);
+  color: #7a2a48;
   text-shadow: 0 0 4px var(--paper), 0 0 10px var(--paper), 0 0 18px rgba(244, 240, 231, 0.85);
 }
 /* Style 2: a small cream paper tag, pinned above the orb. */

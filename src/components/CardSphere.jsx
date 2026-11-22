@@ -235,9 +235,10 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
   const st = useRef({
     phase: 'closed',
     reveal: 0,
-    // How far the cards have travelled round the ring. SKIP starts on the orb's left side and drifts
-    // round into view.
-    theta: -1.2 * (params.spinDir >= 0 ? 1 : -1),
+    // How far the cards have travelled round the ring. SKIP starts where the skipStart setting says
+    // (front-left by default) and drifts on from there.
+    theta: THREE.MathUtils.degToRad(params.skipStart),
+    restTravel: 0, // how far SKIP has drifted since the page loaded
     omega: 0,
     target: 0,
     vel: 0, // spin momentum
@@ -296,8 +297,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
     const focus = active ? sphereOrder.indexOf(active) : -1;
 
     if (s.phase === 'closed') {
-      // Before anyone touches it, SKIP travels slowly round the orb on its own.
-      if (!reduced) s.theta += dt * params.restSpin * dir;
+      // Before anyone touches it, SKIP travels slowly round the orb from its start position.
+      if (!reduced) s.restTravel += dt * params.restSpin * dir;
+      s.theta = THREE.MathUtils.degToRad(params.skipStart) + s.restTravel;
       // The first real drag sets off the spring; the orb finishes the turn for you.
       // (`started` stays set until a frame handles it, so even a very quick flick counts.)
       if (d.started) {

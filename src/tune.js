@@ -18,6 +18,7 @@ export const DEFAULTS = {
   ringTilt: 0.14, // how much we look down onto the ring of cards
   ringLean: 0.19, // the ring's lean: positive = left side up, right side down
   spinDir: 1, // which way the first turn and the fan-out go (1 or -1)
+  skipStart: -45, // where SKIP starts on the ring, in degrees (0 = front, -90 = far left)
   restSpin: 0.09, // how fast SKIP travels round the orb before anyone touches it
   orbitPath: 0, // how visible the dotted orbit path is (0 = hidden)
   settle: 0.01, // how quickly the orb tips back upright after you let go (0 = stays put)
@@ -38,7 +39,7 @@ export const DEFAULTS = {
   rightMain: '#ea7896',
   rightLight: '#f4d6de',
   rightDeep: '#93437c',
-  hintStyle: 1, // "turn the orb" note: 1 = dark ink with a cream halo, 2 = on a paper tag
+  hintStyle: 1, // "turn the orb" note: 1 = burgundy ink with a cream halo, 2 = on a paper tag
 };
 
 export const tuneEnabled =

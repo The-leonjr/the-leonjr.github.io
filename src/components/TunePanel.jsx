@@ -23,6 +23,7 @@ const SLIDERS = [
     ['ringTilt', 'Look down onto ring', 0, 0.9, 0.01],
     ['ringLean', 'Ring lean (+ = left side up)', -0.6, 0.6, 0.01],
     ['spinDir', 'First turn direction (-1 or 1)', -1, 1, 2],
+    ['skipStart', 'SKIP start position (deg, 0 = front)', -180, 180, 1],
     ['restSpin', 'SKIP orbit speed at rest', 0, 1, 0.01],
     ['orbitPath', 'Dotted orbit path', 0, 1, 0.05],
     ['settle', 'Tip back upright (0 = stays)', 0, 0.1, 0.005],
