@@ -22,7 +22,10 @@ export const DEFAULTS = {
   orbitPath: 0, // how visible the dotted orbit path is (0 = hidden)
   settle: 0.01, // how quickly the orb tips back upright after you let go (0 = stays put)
   cardOrbit: 0.2, // how fast the cards travel round the ring on their own once it's open
-  orbFollow: 0.45, // how much the orb turns along with the cards (lower = orb turns slower than them) // how much spinning the card sphere drags the water around it (0 = off)
+  orbFollow: 0.45, // how much the orb turns along with the cards (lower = orb turns slower than them)
+  freeOrbit: 0, // 1 = after a pause, cards slowly stray off the ring onto their own paths
+  freeDelay: 4, // seconds of stillness before they start straying
+  freeStray: 1, // how far they stray above and below the ring // how much spinning the card sphere drags the water around it (0 = off)
   granules: 0.75, // darker pigment specks that appear as dragged colour dries back (0 = off)
   rightBoost: 0.4, // extra pigment on the rose side
   fadeStart: 0.3, // where the fade begins, as a share of the hero height above its bottom edge

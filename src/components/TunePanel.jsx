@@ -25,6 +25,9 @@ const SLIDERS = [
     ['settle', 'Tip back upright (0 = stays)', 0, 0.1, 0.005],
     ['cardOrbit', 'Card orbit speed', 0, 0.8, 0.01],
     ['orbFollow', 'Orb turns with cards (low = slower)', 0, 1, 0.01],
+    ['freeOrbit', 'Free orbits (0 off, 1 on)', 0, 1, 1],
+    ['freeDelay', 'Seconds before straying', 1, 15, 0.5],
+    ['freeStray', 'How far they stray', 0, 2, 0.05],
   ]],
   ['Fade into the page', [
     ['fadeStart', 'Fade starts (share of hero)', 0, 0.6, 0.01],

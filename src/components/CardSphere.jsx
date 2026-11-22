@@ -86,19 +86,16 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ease = (k) => 1 - Math.pow(1 - k, 3);
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-// A card bent around the ring like a curved screen: its edges curve back toward the orb.
-function curvedCard(w, h, bendRadius) {
-  const g = new THREE.PlaneGeometry(w, h, 28, 1);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const a = p.getX(i) / bendRadius;
-    p.setX(i, Math.sin(a) * bendRadius);
-    p.setZ(i, (Math.cos(a) - 1) * bendRadius);
-  }
-  p.needsUpdate = true;
-  g.computeVertexNormals();
-  return g;
-}
+// Free orbits: how far above/below the ring each card strays (radians), where on its path it
+// peaks, and how much faster or slower than the ring it drifts. Spread out so they don't collide.
+const STRAY = [
+  [0.32, 0.3, 1.0],
+  [0.5, 1.4, 1.18],
+  [0.42, 2.6, 0.86],
+  [0.55, 3.7, 1.1],
+  [0.38, 4.6, 0.92],
+  [0.48, 5.6, 1.22],
+];
 
 // The back of every card: plain cream paper with the site's star, like the back of a playing card.
 function makeBackTexture() {
@@ -205,8 +202,17 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
   const cardW = mobile ? 1.75 : 1.45;
   const cardH = (cardW * CARD_H) / CARD_W;
   const slot = (Math.PI * 2) / sphereOrder.length;
-  const geometry = useMemo(() => curvedCard(cardW, cardH, RING_R), [cardW, cardH]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  // Each card has its own grid of points, re-wrapped every frame onto a sphere around the orb, so
+  // it curves both ways and wraps tighter the nearer it is to the top or bottom.
+  const sheets = useMemo(
+    () =>
+      sphereOrder.map(() => {
+        const geo = new THREE.PlaneGeometry(1, 1, 24, 10);
+        return { geo, base: Float32Array.from(geo.attributes.position.array), scale: 1 };
+      }),
+    [],
+  );
+  useEffect(() => () => sheets.forEach((sh) => sh.geo.dispose()), [sheets]);
 
   // Pull the camera back so the orb is about two thirds of the hero's height and the ring fits.
   // On wider screens everything sits a little right of centre, clear of the name.
@@ -236,6 +242,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
     tipVel: 0, // tip momentum
     sys: new THREE.Quaternion(), // the whole orb-and-ring's tip, from dragging up and down
     last: 0,
+    lastInput: 0,
+    free: 0, // 0 = on the ring, 1 = fully strayed onto their own paths
+    drift: sphereOrder.map(() => 0), // how far each card has drifted ahead of or behind its slot
   });
   const v = useMemo(
     () => ({
@@ -247,6 +256,8 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       orbQ: new THREE.Quaternion(),
       orbEuler: new THREE.Euler(),
       a: new THREE.Vector3(),
+      p: new THREE.Vector3(),
+      c: new THREE.Vector3(),
       out: new THREE.Vector3(),
       sysUp: new THREE.Vector3(),
       tint: new THREE.Color(),
@@ -301,12 +312,14 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       if (s.reveal >= 1 && Math.abs(s.target - s.theta) < 0.004 && Math.abs(s.omega) < 0.02) {
         s.phase = 'open';
         s.vel = 0;
+        s.lastInput = t;
       }
     } else if (focus >= 0) {
       // Keyboard focus: stand it upright and turn the ring until that card is at the front.
       const goal = s.theta + wrapAngle(-dir * focus * slot - s.theta);
       s.theta += (goal - s.theta) * Math.min(1, dt * 5);
       s.sys.slerp(v.identity, Math.min(1, dt * 4));
+      s.lastInput = t;
     } else if (d.down) {
       // Dragging sideways spins the ring; dragging up or down tips the whole orb and ring.
       s.theta += d.dx * 0.006;
@@ -314,6 +327,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       s.tipVel = d.dy * 0.005;
       s.sys.premultiply(v.tmpQ.setFromAxisAngle(X_AXIS, s.tipVel));
       d.dx = d.dy = 0;
+      s.lastInput = t;
     } else {
       // Let go: keep a little momentum, idle-spin, and slowly tip back upright.
       s.theta += s.vel;
@@ -335,30 +349,63 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
     v.orbQ.setFromEuler(v.orbEuler.set(0.22, s.theta * params.orbFollow + (reduced ? 0 : t * 0.04), 0.12));
     orb.mesh.quaternion.copy(s.sys).multiply(v.orbQ);
 
+    // Free orbits (optional, ?tune): after a pause the cards slowly stray off the ring, each drifting a
+    // little above or below it and a little ahead or behind. Nothing jumps; any touch draws them back.
+    const wantFree =
+      params.freeOrbit >= 0.5 && s.phase === 'open' && !d.down && focus < 0 && t - s.lastInput > params.freeDelay;
+    s.free += ((wantFree ? 1 : 0) - s.free) * (1 - Math.exp(-dt * (wantFree ? 0.35 : 2.5)));
+    const f = s.free;
+
     // Place the cards. While closed, the others wait inside the orb behind SKIP; opening fans them
     // out along the ring.
     const e = ease(s.reveal);
     cards.current.forEach((group, i) => {
       if (!group) return;
-      const a = s.theta + dir * i * slot * e;
+      const sheet = sheets[i];
+      const [amp, node, speed] = STRAY[i];
+      if (f > 0.001) s.drift[i] += dt * f * (speed - 1) * Math.max(params.cardOrbit, 0.1) * 1.5 * dir;
+      else s.drift[i] = wrapAngle(s.drift[i]);
+      if (!wantFree) s.drift[i] *= Math.exp(-dt * 1.5);
+
+      const a = s.theta + dir * i * slot * e + s.drift[i];
       const grow = i === 0 ? 1 : 0.62 + 0.38 * e; // others rise out of the orb as they fan out
-      v.a.set(Math.sin(a) * RING_RX * grow, 0, Math.cos(a) * RING_R * grow).applyQuaternion(v.worldQ);
-      group.position.copy(v.a);
-      // Cards stand upright (relative to the orb's tip) and face straight out from it, turning only
-      // like a door on a hinge. Out front they face you; at the sides they go edge-on; round the
-      // back you see the card's back.
-      v.out.copy(v.a).addScaledVector(v.sysUp, -v.a.dot(v.sysUp)).normalize();
-      group.up.copy(v.sysUp);
-      group.lookAt(v.a.x + v.out.x, v.a.y + v.out.y, v.a.z + v.out.z);
+      // The card's centre on the (tilted) ring, in the orb's own upright frame.
+      v.p.set(Math.sin(a) * RING_RX * grow, 0, Math.cos(a) * RING_R * grow).applyQuaternion(v.ringQ);
+      const R = v.p.length();
+      let lat = Math.asin(THREE.MathUtils.clamp(v.p.y / R, -1, 1));
+      const lon = Math.atan2(v.p.x, v.p.z);
+      // Straying: lift the card above or below the ring, more on some parts of its path than others.
+      lat = THREE.MathUtils.clamp(lat + f * amp * params.freeStray * Math.sin(a + node), -1.15, 1.15);
+
       const isActive = s.phase === 'open' && (sphereOrder[i] === hovered || sphereOrder[i] === active);
       const target = (i === 0 ? 1 : 0.6 + 0.4 * e) * (isActive ? 1.1 : 1);
-      group.scale.setScalar(group.scale.x + (target - group.scale.x) * Math.min(1, dt * 10));
+      sheet.scale += (target - sheet.scale) * Math.min(1, dt * 10);
+      const W = cardW * sheet.scale;
+      const H = cardH * sheet.scale;
+
+      // Wrap the card onto a sphere of radius R around the orb: across = along its latitude circle,
+      // up = along its meridian. Near the top or bottom the latitude circle is smaller, so the card's
+      // edges wrap further around, following the orb's shape. Upright relative to the orb.
+      const cosLat = Math.max(Math.cos(lat), 0.3);
+      const pos = sheet.geo.attributes.position;
+      for (let k = 0; k < pos.count; k++) {
+        const la = lat + sheet.base[k * 3 + 1] * (H / R);
+        const lo = lon + sheet.base[k * 3] * (W / (R * cosLat));
+        const cl = Math.cos(la);
+        v.c.set(R * cl * Math.sin(lo), R * Math.sin(la), R * cl * Math.cos(lo)).applyQuaternion(s.sys);
+        pos.setXYZ(k, v.c.x, v.c.y, v.c.z);
+      }
+      pos.needsUpdate = true;
+      sheet.geo.computeBoundingSphere();
+
+      // The card's centre in the world, for its shadow and its shading.
+      v.a.set(Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon)).applyQuaternion(s.sys);
       // Farther round the back = a little dimmer, like it's in the orb's shade. No see-through.
-      v.tint.copy(v.white).lerp(FAR_TINT, (1 - (v.out.z + 1) / 2) * 0.7);
+      v.tint.copy(v.white).lerp(FAR_TINT, (1 - (v.a.z + 1) / 2) * 0.7);
       group.children.forEach((m) => m.material.color.copy(v.tint));
       group.visible = i === 0 || e > 0.001;
       // Each card casts a soft shadow onto the orb's surface.
-      orb.setShadow(i, group.position, group.visible ? (i === 0 ? 1 : e) : 0);
+      orb.setShadow(i, v.a.multiplyScalar(R), group.visible ? (i === 0 ? 1 : e) : 0);
     });
 
     // The dotted orbit path travels with the cards.
@@ -408,9 +455,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       {textures.map(
         (tex, i) =>
           tex && (
-            <group key={sphereOrder[i]} ref={(g) => (cards.current[i] = g)} scale={i === 0 ? 1 : 0.6}>
+            <group key={sphereOrder[i]} ref={(g) => (cards.current[i] = g)}>
               <mesh
-                geometry={geometry}
+                geometry={sheets[i].geo}
                 onPointerOver={(ev) => {
                   if (!ev.object.parent.visible) return;
                   ev.stopPropagation();
@@ -426,7 +473,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
               >
                 <meshBasicMaterial map={tex} alphaTest={0.5} toneMapped={false} side={THREE.FrontSide} />
               </mesh>
-              <mesh geometry={geometry}>
+              <mesh geometry={sheets[i].geo}>
                 <meshBasicMaterial map={backTex} alphaTest={0.5} toneMapped={false} side={THREE.BackSide} />
               </mesh>
             </group>
