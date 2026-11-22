@@ -7,18 +7,6 @@ import { createAsciiOrb } from '../three/asciiOrb.js';
 import { useInView } from '../hooks.js';
 import { sphereStir } from '../stir.js';
 
-// Where each orbiting card sits (before any rotation). They rest mostly behind the orb.
-const POINTS = [
-  [-0.86, 0.4, -0.32], // memematch, peeking out at the upper left
-  [0.88, 0.34, -0.33], // analysets, peeking out at the upper right
-  [-0.5, -0.58, -0.64], // aurafarm, low and behind
-  [0.12, 0.8, -0.59], // salarycalc, over the top and behind
-  [0.45, -0.25, -0.86], // animal adoption, straight behind
-].map(([x, y, z]) => new THREE.Vector3(x, y, z).normalize());
-
-// The orb's radius as a share of the orbit radius. Cards orbit just outside it, overlapping its rim.
-const ORB_SIZE = 0.84;
-
 const CARD_W = 640;
 const IMG_H = 342;
 const PAD = 16;
@@ -78,11 +66,31 @@ async function makeCardTexture(project) {
   return tex;
 }
 
-function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
+// ---------- The orb, the ring of cards, and how they move ----------
+
+// Sizes in world units. The orb sits in the middle; the cards ride a tilted ring around it.
+const ORB_R = 2.0;
+const RING_R = 2.75; // front-to-back radius of the ring
+const RING_RX = 2.45; // side-to-side radius: a little narrower, so side cards stay clear of the name
+// The ring is seen slightly from above (front cards lower, back cards higher). It leans so its left
+// side rides higher, above the name, and its right side dips where there is room.
+const RING_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.3, 0, -0.18, 'XYZ'));
+const RING_UP = new THREE.Vector3(0, 1, 0).applyQuaternion(RING_Q);
+// How much a card turns with the ring instead of facing you (0 = always flat to the screen).
+const CARD_TILT = 0.35;
+// The springy first turn: how far it swings and how bouncy it is.
+const OPEN_TURN = 1.15; // radians
+const SPRING = 38; // stiffness
+const DAMPING = 8.5; // lower = more overshoot
+const REVEAL_TIME = 0.95; // seconds for the cards to fan out
+
+const ease = (k) => 1 - Math.pow(1 - k, 3);
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, openRequest }) {
   const navigate = useNavigate();
-  const { camera, size } = useThree();
-  const group = useRef();
-  // The centrepiece: a lit 3D orb drawn in text characters.
+  const { camera, size, gl } = useThree();
+  // The centrepiece: a lit 3D orb with text characters on its surface.
   const orb = useMemo(() => createAsciiOrb(), []);
   useEffect(() => () => orb.dispose(), [orb]);
 
@@ -109,145 +117,167 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
   }, []);
 
   const mobile = size.width < 700;
-  const R = mobile ? 1.7 : 2.5;
-  const cardW = mobile ? 1.5 : 1.45;
+  const cardW = mobile ? 1.75 : 1.45;
   const cardH = (cardW * CARD_H) / CARD_W;
+  const slot = (Math.PI * 2) / sphereOrder.length;
 
-  // Pull the camera back far enough that the whole sphere fits the canvas. On wider screens the
-  // sphere sits a little right of centre so it doesn't run into the name in the bottom-left corner.
+  // Pull the camera back so the orb is about two thirds of the hero's height and the ring fits.
+  // On wider screens everything sits a little right of centre, clear of the name.
   useEffect(() => {
     const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const shift = mobile ? 0 : size.width * 0.1;
+    const shift = mobile ? 0 : size.width * 0.12;
     const aspect = (size.width - shift * 2) / size.height;
-    const short = !mobile && size.height < 780 ? 1.1 : 1;
-    // The orb is the main object: about 72% of the hero's height on wide screens.
-    const orbDiameter = 2 * R * ORB_SIZE;
-    const needH = (orbDiameter / (2 * half * (mobile ? 0.62 : 0.72))) * short;
-    const needW = (R + cardW * (mobile ? 0.3 : 0.55)) / (half * aspect);
+    const short = !mobile && size.height < 780 ? 1.08 : 1;
+    const needH = ((2 * ORB_R) / (2 * half * (mobile ? 0.56 : 0.66))) * short;
+    const needW = (RING_RX + cardW * (mobile ? 0.25 : 0.5)) / (half * aspect);
     camera.position.set(0, 0, Math.max(needH, needW));
     if (shift) camera.setViewOffset(size.width, size.height, -shift, 0, size.width, size.height);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
-    orb.setLayout(size.width, size.height, mobile ? 8 : 10);
-  }, [camera, size, R, cardW, cardH, mobile, orb]);
+    orb.setCellSize(mobile ? 10 : 13);
+  }, [camera, size, cardW, mobile, orb]);
 
   const cards = useRef([]);
-  const state = useRef({ yaw: 0, pitch: -0.08, lastYaw: 0, lastPitch: 0 });
-  const born = useRef([]);
-  const tmp = useMemo(() => new THREE.Vector3(), []);
-  const euler = useMemo(() => new THREE.Euler(), []);
+  // phase: 'closed' (orb + SKIP), 'opening' (the springy first turn), 'open' (spin freely)
+  const st = useRef({ phase: 'closed', reveal: 0, theta: 0, omega: 0, target: 0, dir: -1, vel: 0, last: 0 });
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const out = useMemo(() => new THREE.Vector3(), []);
+  const qCam = useMemo(() => new THREE.Quaternion(), []);
 
-  // Priority 1 means this function draws the frame itself (in three passes, see the end).
-  useFrame((s, delta) => {
+  const open = (dir = -1) => {
+    const s = st.current;
+    if (s.phase !== 'closed') return;
+    onTurn?.();
+    if (reduced) {
+      s.phase = 'open';
+      s.reveal = 1;
+      return;
+    }
+    s.phase = 'opening';
+    s.dir = dir;
+    s.target = s.theta + dir * OPEN_TURN;
+    s.omega = dir * 1.5; // a little push, like the swipe that started it
+  };
+  // Opening can also be asked for from outside (keyboard focus on a project link).
+  useEffect(() => {
+    if (openRequest) open(-1);
+  }, [openRequest]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useFrame((state, delta) => {
     const dt = Math.min(delta, 1 / 20);
-    const st = state.current;
+    const frames = dt * 60;
+    const s = st.current;
     const d = drag.current;
 
-    // Rotation: follow the drag, keep a little momentum, then idle-spin when nobody is touching it.
-    const focusIndex = active ? sphereOrder.indexOf(active) : -1;
-    if (focusIndex >= 0) {
-      // Keyboard focus: turn the sphere so that card faces the visitor.
-      const p = POINTS[focusIndex];
-      const targetYaw = Math.atan2(-p.x, p.z);
-      const targetPitch = Math.atan2(p.y, Math.hypot(p.x, p.z));
-      const dyaw = Math.atan2(Math.sin(targetYaw - st.yaw), Math.cos(targetYaw - st.yaw));
-      st.yaw += dyaw * Math.min(1, dt * 5);
-      st.pitch += (targetPitch - st.pitch) * Math.min(1, dt * 5);
-    } else if (d.down) {
-      st.yaw += d.dx;
-      st.pitch = THREE.MathUtils.clamp(st.pitch + d.dy, -0.7, 0.7);
-      d.vx = d.dx;
-      d.dx = d.dy = 0;
+    if (s.phase === 'closed') {
+      // The first real drag sets off the spring; the orb finishes the turn for you.
+      if (d.moved) open(d.lastDx > 0 ? 1 : -1);
+      d.dx = 0;
+    } else if (s.phase === 'opening') {
+      s.reveal = Math.min(1, s.reveal + dt / REVEAL_TIME);
+      const acc = SPRING * (s.target - s.theta) - DAMPING * s.omega;
+      s.omega += acc * dt;
+      s.theta += s.omega * dt;
+      d.dx = 0;
+      if (s.reveal >= 1 && Math.abs(s.target - s.theta) < 0.004 && Math.abs(s.omega) < 0.02) {
+        s.phase = 'open';
+        s.vel = 0;
+      }
     } else {
-      st.yaw += d.vx;
-      d.vx *= Math.pow(0.92, dt * 60);
-      if (!reduced && hovered === null) st.yaw += dt * 0.12;
-      st.pitch += (-0.08 - st.pitch) * Math.min(1, dt * 0.6);
+      const focus = active ? sphereOrder.indexOf(active) : -1;
+      if (focus >= 0) {
+        // Keyboard focus: turn the ring until that card is at the front.
+        const goal = s.theta + wrapAngle(-focus * slot - s.theta);
+        s.theta += (goal - s.theta) * Math.min(1, dt * 5);
+      } else if (d.down) {
+        s.theta += d.dx * 0.006;
+        s.vel = d.dx * 0.006;
+        d.dx = 0;
+      } else {
+        s.theta += s.vel;
+        s.vel *= Math.pow(0.93, frames);
+        if (!reduced && hovered === null) s.theta += dt * 0.12;
+      }
     }
 
-    group.current.rotation.set(st.pitch, st.yaw, 0, 'XYZ');
+    // The orb turns with the ring, and slowly on its own.
+    const t = state.clock.elapsedTime;
+    orb.mesh.scale.setScalar(ORB_R);
+    orb.mesh.rotation.set(0.22, s.theta * 0.8 + (reduced ? 0 : t * 0.08), 0.12);
+    const radiusPx = orb.update(gl, camera, t);
 
-    // Tell the water where the sphere is and how fast its surface is moving, so it can drag the
-    // water around with it (see src/stir.js).
+    // Tell the water how fast the orb's surface is moving (see src/stir.js).
     const box = wrap.current?.getBoundingClientRect();
     if (box) {
-      const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const radiusPx = (R / (camera.position.z * half)) * (size.height / 2);
       const shift = camera.view?.enabled ? -camera.view.offsetX : 0;
       sphereStir.x = box.left + size.width / 2 + shift;
       sphereStir.y = box.top + size.height / 2;
       sphereStir.radius = radiusPx;
-      sphereStir.dx = (st.yaw - st.lastYaw) * radiusPx;
-      sphereStir.dy = (st.pitch - st.lastPitch) * radiusPx;
+      sphereStir.dx = (s.theta - s.last) * radiusPx;
+      sphereStir.dy = 0;
       sphereStir.live = true;
     }
-    st.lastYaw = st.yaw;
-    st.lastPitch = st.pitch;
-    // The orb spins on its own and leans with the sphere when you drag it.
-    orb.mesh.scale.setScalar(R * ORB_SIZE);
-    orb.mesh.rotation.set(0.35 + st.pitch * 0.6, (reduced ? 0 : s.clock.elapsedTime * 0.22) + st.yaw * 0.6, 0.18);
+    s.last = s.theta;
 
-    // Entrance: each card starts in the middle and deals out to its place once its image is ready.
-    euler.set(st.pitch, st.yaw, 0, 'XYZ');
+    // Place the cards on the ring. While closed, every card hides behind SKIP; opening fans them out.
+    const e = ease(s.reveal);
+    qCam.copy(camera.quaternion);
     cards.current.forEach((mesh, i) => {
       if (!mesh) return;
-      if (born.current[i] === undefined) born.current[i] = s.clock.elapsedTime + i * 0.06;
-      const since = s.clock.elapsedTime - born.current[i];
-      const k = reduced ? 1 : THREE.MathUtils.clamp(since / 1.1, 0, 1);
-      const ease = 1 - Math.pow(1 - k, 3);
-      mesh.position.copy(POINTS[i]).multiplyScalar(R * ease);
-      // Cards always face the camera so the screenshots stay readable.
-      mesh.quaternion.copy(group.current.quaternion).invert().multiply(camera.quaternion);
-      tmp.copy(POINTS[i]).applyEuler(euler);
-      const front = (tmp.z + 1) / 2;
-      const isActive = sphereOrder[i] === hovered || sphereOrder[i] === active;
-      const target = (isActive ? 1.28 : 1) * (0.25 + 0.75 * ease);
-      const sc = mesh.scale.x + (target - mesh.scale.x) * Math.min(1, dt * 10);
-      mesh.scale.setScalar(sc);
-      mesh.material.opacity = (0.6 + 0.4 * front) * Math.min(1, k * 3);
-      mesh.renderOrder = isActive ? 10 : 0;
-      mesh.userData.front = tmp.z > 0;
+      const a = s.theta + i * slot * e;
+      mesh.position.set(Math.sin(a) * RING_RX, 0, Math.cos(a) * RING_R).applyQuaternion(RING_Q);
+      out.set(Math.sin(a), 0, Math.cos(a)).applyQuaternion(RING_Q);
+      // Mostly face the visitor, but turn partly with the ring so cards slide edge-on round the back.
+      dummy.position.copy(mesh.position);
+      dummy.up.copy(RING_UP);
+      dummy.lookAt(mesh.position.x + out.x, mesh.position.y + out.y, mesh.position.z + out.z);
+      mesh.quaternion.copy(qCam).slerp(dummy.quaternion, CARD_TILT);
+      const isActive = s.phase === 'open' && (sphereOrder[i] === hovered || sphereOrder[i] === active);
+      const base = i === 0 ? 1 : 0.55 + 0.45 * e;
+      const target = base * (isActive ? 1.12 : 1);
+      mesh.scale.setScalar(mesh.scale.x + (target - mesh.scale.x) * Math.min(1, dt * 10));
+      const front = (out.z + 1) / 2;
+      mesh.material.opacity = (i === 0 ? 1 : Math.min(1, e * 1.6)) * (0.7 + 0.3 * front);
+      mesh.visible = i === 0 || e > 0.001;
     });
-
-    // Draw: cards behind the orb, then the ASCII orb, then the cards in front of it.
-    const gl = s.gl;
-    const meshes = cards.current.filter(Boolean);
-    gl.autoClear = false;
-    gl.setRenderTarget(null);
-    gl.clear();
-    meshes.forEach((m) => (m.visible = !m.userData.front));
-    gl.render(s.scene, camera);
-    orb.render(gl, camera, s.clock.elapsedTime);
-    gl.clearDepth();
-    meshes.forEach((m) => (m.visible = m.userData.front));
-    gl.render(s.scene, camera);
-    meshes.forEach((m) => (m.visible = true));
-  }, 1);
+  });
 
   return (
     <>
-      <group ref={group}>
-        {textures.map((tex, i) => tex && (
-          <mesh
-            key={sphereOrder[i]}
-            ref={(m) => (cards.current[i] = m)}
-            scale={0.25}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              setHovered(sphereOrder[i]);
-            }}
-            onPointerOut={() => setHovered(null)}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (drag.current.moved) return;
-              navigate(`/work/${sphereOrder[i]}`);
-            }}
-          >
-            <planeGeometry args={[cardW, cardH]} />
-            <meshBasicMaterial map={tex} transparent toneMapped={false} />
-          </mesh>
-        ))}
-      </group>
+      <primitive
+        object={orb.group}
+        onClick={(ev) => {
+          // Tapping the orb (not a card) also opens it, for phones and anyone who doesn't drag.
+          if (ev.object !== orb.mesh) return;
+          ev.stopPropagation();
+          open(-1);
+        }}
+      />
+      {textures.map(
+        (tex, i) =>
+          tex && (
+            <mesh
+              key={sphereOrder[i]}
+              ref={(m) => (cards.current[i] = m)}
+              scale={i === 0 ? 1 : 0.55}
+              onPointerOver={(ev) => {
+                if (!ev.object.visible) return;
+                ev.stopPropagation();
+                setHovered(sphereOrder[i]);
+              }}
+              onPointerOut={() => setHovered(null)}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                if (drag.current.moved) return;
+                if (st.current.phase === 'closed' && i !== 0) return;
+                navigate(`/work/${sphereOrder[i]}`);
+              }}
+            >
+              <planeGeometry args={[cardW, cardH]} />
+              <meshBasicMaterial map={tex} transparent toneMapped={false} />
+            </mesh>
+          ),
+      )}
     </>
   );
 }
@@ -256,8 +286,7 @@ export default function CardSphere({ reduced, active, onTurn }) {
   const wrap = useRef(null);
   const inView = useInView(wrap);
   const [hovered, setHovered] = useState(null);
-  // A small push on load, so the first thing the orb does is turn a little and show it can move.
-  const drag = useRef({ down: false, moved: false, x: 0, y: 0, dx: 0, dy: 0, vx: reduced ? 0 : 0.03 });
+  const drag = useRef({ down: false, moved: false, x: 0, y: 0, dx: 0, lastDx: 0, total: 0 });
   useEffect(() => {
     sphereStir.live = inView;
   }, [inView]);
@@ -270,8 +299,7 @@ export default function CardSphere({ reduced, active, onTurn }) {
   }, [hovered]);
 
   const onPointerDown = (e) => {
-    const d = drag.current;
-    Object.assign(d, { down: true, moved: false, x: e.clientX, y: e.clientY, dx: 0, dy: 0, vx: 0, total: 0 });
+    Object.assign(drag.current, { down: true, moved: false, x: e.clientX, y: e.clientY, dx: 0, total: 0 });
   };
   const onPointerMove = (e) => {
     const d = drag.current;
@@ -281,13 +309,12 @@ export default function CardSphere({ reduced, active, onTurn }) {
     d.x = e.clientX;
     d.y = e.clientY;
     d.total += Math.abs(mx) + Math.abs(my);
+    if (mx) d.lastDx = mx;
     if (d.total > 6) {
-      if (!d.moved) onTurn?.();
       d.moved = true;
       wrap.current.classList.add('dragging');
     }
-    d.dx += mx * 0.006;
-    d.dy += my * 0.004;
+    d.dx += mx;
   };
   const end = (e) => {
     const d = drag.current;
@@ -316,7 +343,16 @@ export default function CardSphere({ reduced, active, onTurn }) {
         gl={{ alpha: true, antialias: true }}
         aria-hidden="true"
       >
-        <Sphere reduced={reduced} active={active} drag={drag} hovered={hovered} setHovered={setHovered} wrap={wrap} />
+        <Sphere
+          reduced={reduced}
+          active={active}
+          drag={drag}
+          hovered={hovered}
+          setHovered={setHovered}
+          wrap={wrap}
+          onTurn={onTurn}
+          openRequest={!!active}
+        />
       </Canvas>
     </div>
   );

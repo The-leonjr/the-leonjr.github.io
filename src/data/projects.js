@@ -224,11 +224,10 @@ export const projects = [
 
 export const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
 
-// SKIP is the featured project: a plain card on the hero, there before the 3D loads.
+// The cards on the orb's ring, in order. SKIP is first: it is the one card showing before the
+// orb is turned for the first time; the other five fan out from behind it.
 export const featured = 'skip';
-
-// The other five orbit the orb. They rest mostly behind it and come round when you turn it.
-export const sphereOrder = ['memematch', 'analysets', 'aurafarm', 'salarycalc', 'animal-adoption'];
+export const sphereOrder = ['skip', 'memematch', 'analysets', 'aurafarm', 'salarycalc', 'animal-adoption'];
 
 export const toolkit = [
   ['Web and cloud', 'JavaScript, Node.js, Express, MySQL, AWS'],

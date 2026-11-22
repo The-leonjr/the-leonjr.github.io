@@ -17,7 +17,10 @@ export default function AsciiOrb({ dropped = false, label }) {
 
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 50);
     camera.position.set(0, 0, 6);
+    const scene = new THREE.Scene();
     const orb = createAsciiOrb();
+    scene.add(orb.group);
+    orb.setCellSize(11);
     orb.mesh.scale.setScalar(dropped ? 1.05 : 1.25);
     if (dropped) orb.mesh.position.set(0.35, -0.55, 0);
 
@@ -27,7 +30,6 @@ export default function AsciiOrb({ dropped = false, label }) {
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      orb.setLayout(w, h, 9);
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -48,9 +50,8 @@ export default function AsciiOrb({ dropped = false, label }) {
     const draw = () => {
       const t = clock.getElapsedTime();
       orb.mesh.rotation.set(0.35 + mouse.y * 0.5, (reduced ? 0.6 : t * 0.25) + mouse.x * 0.8, dropped ? 0.5 : 0.18);
-      renderer.setRenderTarget(null);
-      renderer.clear();
-      orb.render(renderer, camera, reduced ? 2 : t);
+      orb.update(renderer, camera, reduced ? 2 : t);
+      renderer.render(scene, camera);
     };
     let raf;
     const loop = () => {

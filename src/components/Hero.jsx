@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { site, byId, sphereOrder, featured } from '../data/projects.js';
+import { site, byId, sphereOrder } from '../data/projects.js';
 import { useReducedMotion, hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
 
@@ -24,7 +24,6 @@ export default function Hero() {
   const webgl = hasWebGL();
   const [active, setActive] = useState(null);
   const [turned, setTurned] = useState(false);
-  const lead = byId[featured];
 
   return (
     <section className="hero" aria-labelledby="hero-title">
@@ -60,22 +59,9 @@ export default function Hero() {
         </Link>
       </div>
 
-      {/* The featured project, as a normal card: visible straight away, on phones and without 3D. */}
-      <article className="featured-card">
-        <Link to={`/work/${lead.id}`} className="featured-image" aria-label={`${lead.name}, read how it was made`}>
-          <img src={lead.cover} alt={lead.alt} width="1140" height="642" />
-        </Link>
-        <div className="featured-meta">
-          <Link to={`/work/${lead.id}`} className="featured-name">{lead.name}</Link>
-          {lead.primary && (
-            <a href={lead.primary.href} target="_blank" rel="noopener noreferrer" className="featured-play">
-              Play the game <span aria-hidden="true">↗</span>
-            </a>
-          )}
-        </div>
-      </article>
 
-      {/* Keyboard and screen-reader route into the sphere. Focusing a link brings its card forward. */}
+      {/* Keyboard and screen-reader route into the orb's ring. Focusing a link opens the ring and turns
+          that card to the front. */}
       <nav className="sphere-keys" aria-label="Projects in the sphere">
         {sphereOrder.map((id) => (
           <Link
