@@ -302,6 +302,10 @@ main:has(#about) + .finale { margin-top: 0; border-top: 0; padding-top: clamp(32
 .finale h2 span { display: block; width: fit-content; } /* fit-content so Email can sit right after the line */
 .finale h2 span + span { color: var(--teal); }
 .finale-sub { max-width: 36ch; margin-top: 16px; font-size: clamp(17px, 1.5vw, 20px); color: var(--muted); }
+/* Email · LinkedIn · GitHub · Copy email, the always-visible way to get in touch. */
+.finale-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 10px; width: fit-content; max-width: 100%; }
+.finale-contact .text-link { font-size: 16px; }
+.finale-contact .text-link + .text-link::before { content: '·'; display: inline-block; margin-right: 8px; color: var(--muted); text-decoration: none; }
 .finale .availability { margin-top: 12px; font: 500 18px/1.4 var(--display); color: var(--wine); }
 .finale .availability::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--coral); vertical-align: 2px; }
 

@@ -14,8 +14,20 @@ function ScrollManager() {
     if (hash) {
       const el = document.getElementById(hash.slice(1));
       if (el) {
-        el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-        return;
+        const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+        el.scrollIntoView({ behavior });
+        // A page that just opened is still growing (the orb and images load in above the target
+        // and push it down). Keep aiming at it for a moment, unless the visitor scrolls themselves.
+        const follow = new ResizeObserver(() => el.scrollIntoView({ behavior }));
+        follow.observe(document.body);
+        const stop = () => {
+          follow.disconnect();
+          clearTimeout(timer);
+          ['wheel', 'touchstart', 'keydown'].forEach((t) => window.removeEventListener(t, stop));
+        };
+        const timer = setTimeout(stop, 2000);
+        ['wheel', 'touchstart', 'keydown'].forEach((t) => window.addEventListener(t, stop, { passive: true }));
+        return stop;
       }
     }
     // A new page starts at the top straight away, without gliding up the old one.

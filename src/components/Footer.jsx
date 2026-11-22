@@ -73,6 +73,15 @@ export default function Footer() {
         </h2>
         <p className="finale-sub">If you're hiring an AI or software intern, let's talk.</p>
         {site.availability && <p className="availability">{site.availability}</p>}
+        {/* Plain links right under the joke, so all three are on screen after the Contact jump
+            even when the stickers have been spread up the page. */}
+        <p className="finale-contact">
+          <a className="text-link" href={`mailto:${site.email}`}>Email</a>
+          <a className="text-link" href={site.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn (opens in a new tab)">LinkedIn</a>
+          <a className="text-link" href={site.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+          <button type="button" className="text-link" onClick={copy}>Copy email</button>
+          <span className="copy-status" role="status">{copyStatus}</span>
+        </p>
 
         <div className="sticker-stage">
           <div className="felt-wordmark" aria-hidden="true">LEON JR.</div>
@@ -99,8 +108,6 @@ export default function Footer() {
             <span className="hint-touch">Tap a sticker to get in touch.</span>
           </p>
           <div className="finale-utils">
-            <button type="button" className="text-link" onClick={copy}>Copy email</button>
-            <span className="copy-status" role="status">{copyStatus}</span>
             {site.resume && (
               <a className="text-link" href={site.resume} target="_blank" rel="noopener noreferrer">Résumé</a>
             )}
