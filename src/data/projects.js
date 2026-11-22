@@ -224,8 +224,11 @@ export const projects = [
 
 export const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
 
-// The order the cards sit on the sphere. The first three face the visitor when the page opens.
-export const sphereOrder = ['memematch', 'skip', 'analysets', 'aurafarm', 'salarycalc', 'animal-adoption'];
+// SKIP is the featured project: a plain card on the hero, there before the 3D loads.
+export const featured = 'skip';
+
+// The other five orbit the orb. They rest mostly behind it and come round when you turn it.
+export const sphereOrder = ['memematch', 'analysets', 'aurafarm', 'salarycalc', 'animal-adoption'];
 
 export const toolkit = [
   ['Web and cloud', 'JavaScript, Node.js, Express, MySQL, AWS'],

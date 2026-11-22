@@ -7,15 +7,17 @@ import { createAsciiOrb } from '../three/asciiOrb.js';
 import { useInView } from '../hooks.js';
 import { sphereStir } from '../stir.js';
 
-// Where each card sits on the sphere (before any rotation). The first three face the visitor.
+// Where each orbiting card sits (before any rotation). They rest mostly behind the orb.
 const POINTS = [
-  [0.0, -0.5, 0.87], // memematch, front and slightly low
-  [-0.78, 0.05, 0.62], // skip, front left
-  [0.78, 0.12, 0.6], // analysets, front right
-  [-0.45, 0.72, -0.52], // aurafarm, back
-  [0.5, 0.68, -0.53], // salarycalc, back
-  [0.1, -0.2, -0.97], // animal adoption, back
+  [-0.86, 0.4, -0.32], // memematch, peeking out at the upper left
+  [0.88, 0.34, -0.33], // analysets, peeking out at the upper right
+  [-0.5, -0.58, -0.64], // aurafarm, low and behind
+  [0.12, 0.8, -0.59], // salarycalc, over the top and behind
+  [0.45, -0.25, -0.86], // animal adoption, straight behind
 ].map(([x, y, z]) => new THREE.Vector3(x, y, z).normalize());
+
+// The orb's radius as a share of the orbit radius. Cards orbit just outside it, overlapping its rim.
+const ORB_SIZE = 0.84;
 
 const CARD_W = 640;
 const IMG_H = 342;
@@ -108,19 +110,21 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
 
   const mobile = size.width < 700;
   const R = mobile ? 1.7 : 2.5;
-  const cardW = mobile ? 1.6 : 1.6;
+  const cardW = mobile ? 1.5 : 1.45;
   const cardH = (cardW * CARD_H) / CARD_W;
 
   // Pull the camera back far enough that the whole sphere fits the canvas. On wider screens the
   // sphere sits a little right of centre so it doesn't run into the name in the bottom-left corner.
   useEffect(() => {
     const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const shift = mobile ? 0 : size.width * 0.07;
+    const shift = mobile ? 0 : size.width * 0.1;
     const aspect = (size.width - shift * 2) / size.height;
     const short = !mobile && size.height < 780 ? 1.1 : 1;
-    const needH = ((R + cardH * 0.75) / half) * short;
-    const needW = (R + cardW * (mobile ? 0.45 : 0.7)) / (half * aspect);
-    camera.position.set(0, 0, Math.max(needH, needW) + R * (mobile ? 0.1 : 0.25));
+    // The orb is the main object: about 72% of the hero's height on wide screens.
+    const orbDiameter = 2 * R * ORB_SIZE;
+    const needH = (orbDiameter / (2 * half * (mobile ? 0.62 : 0.72))) * short;
+    const needW = (R + cardW * (mobile ? 0.3 : 0.55)) / (half * aspect);
+    camera.position.set(0, 0, Math.max(needH, needW));
     if (shift) camera.setViewOffset(size.width, size.height, -shift, 0, size.width, size.height);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
@@ -180,7 +184,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
     st.lastYaw = st.yaw;
     st.lastPitch = st.pitch;
     // The orb spins on its own and leans with the sphere when you drag it.
-    orb.mesh.scale.setScalar(R * 0.62);
+    orb.mesh.scale.setScalar(R * ORB_SIZE);
     orb.mesh.rotation.set(0.35 + st.pitch * 0.6, (reduced ? 0 : s.clock.elapsedTime * 0.22) + st.yaw * 0.6, 0.18);
 
     // Entrance: each card starts in the middle and deals out to its place once its image is ready.
@@ -248,11 +252,12 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap }) {
   );
 }
 
-export default function CardSphere({ reduced, active }) {
+export default function CardSphere({ reduced, active, onTurn }) {
   const wrap = useRef(null);
   const inView = useInView(wrap);
   const [hovered, setHovered] = useState(null);
-  const drag = useRef({ down: false, moved: false, x: 0, y: 0, dx: 0, dy: 0, vx: 0 });
+  // A small push on load, so the first thing the orb does is turn a little and show it can move.
+  const drag = useRef({ down: false, moved: false, x: 0, y: 0, dx: 0, dy: 0, vx: reduced ? 0 : 0.03 });
   useEffect(() => {
     sphereStir.live = inView;
   }, [inView]);
@@ -277,6 +282,7 @@ export default function CardSphere({ reduced, active }) {
     d.y = e.clientY;
     d.total += Math.abs(mx) + Math.abs(my);
     if (d.total > 6) {
+      if (!d.moved) onTurn?.();
       d.moved = true;
       wrap.current.classList.add('dragging');
     }

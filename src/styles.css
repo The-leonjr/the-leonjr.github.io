@@ -144,13 +144,32 @@ button { font: inherit; }
 .pitch { margin-top: 18px; font-size: clamp(17px, 1.35vw, 20px); line-height: 1.55; color: var(--ink); max-width: 34ch; }
 .fact { margin-top: 14px; font-size: 15px; font-weight: 600; color: var(--ink); }
 
-.hero-cue {
-  position: absolute; z-index: 4; right: var(--gutter); bottom: clamp(32px, 6vh, 64px);
-  font: 22px/1 var(--hand); color: var(--coral-ink); text-decoration: none; transform: rotate(-4deg);
+.hero-cta { margin-top: 22px; pointer-events: auto; }
+
+/* The featured project sits at the orb's lower right, in front of everything. */
+.featured-card {
+  position: absolute; z-index: 5; right: calc(var(--gutter) + 2vw); bottom: clamp(56px, 11vh, 120px);
+  width: clamp(260px, 23vw, 400px); background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; padding: 8px 8px 0; box-shadow: 0 22px 48px rgba(53, 43, 37, 0.22);
 }
-.hero-cue span { display: inline-block; animation: bob 2.4s ease-in-out infinite; }
-@keyframes bob { 50% { transform: translateY(5px); } }
-@media (prefers-reduced-motion: reduce) { .hero-cue span { animation: none; } }
+.featured-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; object-position: top; border-radius: 8px; }
+.featured-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 6px 8px; }
+.featured-name { font: 600 24px/1.2 var(--display); color: var(--ink); text-decoration: none; }
+.featured-play {
+  display: inline-flex; align-items: center; min-height: 44px; gap: 6px;
+  font-weight: 600; font-size: 15px; color: var(--coral-ink); text-decoration: none;
+}
+.featured-name:hover, .featured-play:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+/* "Turn the orb": a handwritten nudge that fades once someone has dragged it. */
+.orb-hint {
+  position: absolute; z-index: 4; left: 60%; bottom: clamp(20px, 4vh, 44px); transform: translateX(-50%) rotate(-3deg);
+  font: 23px/1 var(--hand); color: var(--coral-ink); pointer-events: none; transition: opacity 0.8s;
+}
+.orb-hint span { display: inline-block; animation: sway 2.6s ease-in-out infinite; }
+.orb-hint.gone { opacity: 0; }
+@keyframes sway { 50% { transform: rotate(-35deg); } }
+@media (prefers-reduced-motion: reduce) { .orb-hint span { animation: none; } }
 
 .sphere-keys {
   position: absolute; z-index: 6; left: 50%; top: 92px; transform: translateX(-50%);
@@ -163,7 +182,7 @@ button { font: inherit; }
   padding: 6px 14px; font-size: 14px; font-weight: 600; color: var(--ink); text-decoration: none;
 }
 
-.static-fan { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; }
+.static-fan { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; overflow: hidden; }
 .static-fan img {
   grid-area: 1 / 1; width: min(30vw, 340px); border-radius: 10px; border: 8px solid var(--card);
   box-shadow: 0 16px 40px rgba(73, 55, 34, 0.18);
@@ -281,13 +300,15 @@ button { font: inherit; }
   .hero-copy { position: relative; left: auto; bottom: auto; order: 1; max-width: none; padding: 92px var(--gutter) 0; }
   .hero-copy h1 { font-size: clamp(44px, 13vw, 64px); }
   .sphere, .static-fan { position: relative; inset: auto; order: 2; height: 48svh; min-height: 340px; }
-  .hero-cue { position: relative; right: auto; bottom: auto; order: 3; align-self: flex-end; margin: 0 var(--gutter) 20px; }
+  .featured-card { position: relative; right: auto; bottom: auto; order: 2; width: auto; margin: 24px var(--gutter) 0; }
+  .sphere, .static-fan { order: 3; }
+  .orb-hint { position: relative; left: auto; bottom: auto; order: 4; transform: rotate(-3deg); align-self: center; margin: 0 0 22px; }
   .pair { grid-template-columns: 1fr; }
   .toolkit { grid-template-columns: 1fr; }
   .contact-row { grid-template-columns: 1fr auto; }
   .contact-row .label { grid-column: 1 / -1; }
   .project-body { grid-template-columns: 1fr; }
-  .static-fan img { width: 56vw; }
+  .static-fan img { width: 38vw; }
 }
 
 /* ---------- Water tuning panel (only with ?tune) ---------- */

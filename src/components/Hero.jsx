@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { site, byId, sphereOrder } from '../data/projects.js';
+import { site, byId, sphereOrder, featured } from '../data/projects.js';
 import { useReducedMotion, hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
 
@@ -23,6 +23,8 @@ export default function Hero() {
   const reduced = useReducedMotion();
   const webgl = hasWebGL();
   const [active, setActive] = useState(null);
+  const [turned, setTurned] = useState(false);
+  const lead = byId[featured];
 
   return (
     <section className="hero" aria-labelledby="hero-title">
@@ -39,7 +41,7 @@ export default function Hero() {
       {webgl ? (
         <SafeBoundary fallback={<StaticFan />}>
           <Suspense fallback={null}>
-            <CardSphere reduced={reduced} active={active} />
+            <CardSphere reduced={reduced} active={active} onTurn={() => setTurned(true)} />
           </Suspense>
         </SafeBoundary>
       ) : (
@@ -51,9 +53,27 @@ export default function Hero() {
           {site.name}
           <span className="star" aria-hidden="true">✳</span>
         </h1>
-        <p className="pitch">{site.pitch}</p>
         <p className="fact">{site.fact}</p>
+        <p className="pitch">{site.pitch}</p>
+        <Link className="btn hero-cta" to="/#work">
+          See the work <span aria-hidden="true">↓</span>
+        </Link>
       </div>
+
+      {/* The featured project, as a normal card: visible straight away, on phones and without 3D. */}
+      <article className="featured-card">
+        <Link to={`/work/${lead.id}`} className="featured-image" aria-label={`${lead.name}, read how it was made`}>
+          <img src={lead.cover} alt={lead.alt} width="1140" height="642" />
+        </Link>
+        <div className="featured-meta">
+          <Link to={`/work/${lead.id}`} className="featured-name">{lead.name}</Link>
+          {lead.primary && (
+            <a href={lead.primary.href} target="_blank" rel="noopener noreferrer" className="featured-play">
+              Play the game <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </div>
+      </article>
 
       {/* Keyboard and screen-reader route into the sphere. Focusing a link brings its card forward. */}
       <nav className="sphere-keys" aria-label="Projects in the sphere">
@@ -69,9 +89,11 @@ export default function Hero() {
         ))}
       </nav>
 
-      <Link className="hero-cue" to="/#work">
-        six projects below <span aria-hidden="true">↓</span>
-      </Link>
+      {webgl && (
+        <p className={`orb-hint${turned ? ' gone' : ''}`} aria-hidden="true">
+          turn the orb <span>↺</span>
+        </p>
+      )}
     </section>
   );
 }
