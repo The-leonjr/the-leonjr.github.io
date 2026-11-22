@@ -235,7 +235,9 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
   const st = useRef({
     phase: 'closed',
     reveal: 0,
-    theta: 0, // how far the cards have travelled round the ring
+    // How far the cards have travelled round the ring. SKIP starts on the orb's left side and drifts
+    // round into view.
+    theta: -1.2 * (params.spinDir >= 0 ? 1 : -1),
     omega: 0,
     target: 0,
     vel: 0, // spin momentum
