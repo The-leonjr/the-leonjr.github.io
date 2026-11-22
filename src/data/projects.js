@@ -4,6 +4,11 @@
 // TODO (Leon): each project has a `role` and `result` field set to null.
 // Fill them with what you personally did and one result you can back up.
 // Sections with null values are simply not shown on the site.
+//
+// Optional `media` (shown as "See it working" on the project page). Put files in /public/media and use one of:
+//   { kind: 'video', src: '/media/skip.mp4', poster: '/media/skip.jpg', caption: 'A choice and what it costs.' }
+//   { kind: 'pair', before: { src, caption }, after: { src, caption } }   e.g. a reaction photo -> its meme
+//   { kind: 'steps', steps: [{ src, caption }, ...] }                     e.g. phone tap -> robot -> Discord
 
 export const site = {
   name: 'Leon Jr Chua',
@@ -17,6 +22,7 @@ export const site = {
   githubHandle: '@The-leonjr',
   linkedin: 'https://www.linkedin.com/in/leon-jr-chua-750851373/',
   resume: null, // put a PDF in /public and set e.g. '/Leon-Jr-Chua-Resume.pdf'
+  availability: null, // e.g. 'Open to internships from June 2027'. Shown in Say hi when set.
 };
 
 export const groups = [
@@ -55,6 +61,7 @@ export const projects = [
     credits: 'Made with Hannan Noor and Lucas for an anti-drug game jam. The source credits AI-assisted creation.',
     role: null,
     result: null,
+    media: null,
     sections: [
       {
         title: 'The story',
@@ -83,6 +90,7 @@ export const projects = [
     credits: null,
     role: null,
     result: null,
+    media: null,
     sections: [
       {
         title: 'From face to meme',
@@ -113,6 +121,7 @@ export const projects = [
     credits: null,
     role: null,
     result: null,
+    media: null,
     sections: [
       {
         title: 'Start it from anywhere',
@@ -145,6 +154,7 @@ export const projects = [
     credits: null,
     role: null,
     result: null,
+    media: null,
     sections: [
       {
         title: 'Starting from the data',
@@ -175,6 +185,7 @@ export const projects = [
     credits: null,
     role: null,
     result: null,
+    media: null,
     portrait: true,
     sections: [
       {
@@ -206,6 +217,7 @@ export const projects = [
     credits: null,
     role: null,
     result: null,
+    media: null,
     sections: [
       {
         title: 'Two sides',

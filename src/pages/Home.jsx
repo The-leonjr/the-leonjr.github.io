@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import Hero from '../components/Hero.jsx';
 import Work from '../components/Work.jsx';
 import About from '../components/About.jsx';
-import SayHi from '../components/SayHi.jsx';
 
 export default function Home() {
   useEffect(() => {
@@ -13,7 +12,6 @@ export default function Home() {
       <Hero />
       <Work />
       <About />
-      <SayHi />
     </main>
   );
 }

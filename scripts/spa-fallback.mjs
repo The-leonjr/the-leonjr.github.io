@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projects, site } from '../src/data/projects.js';
 
-const dist = path.resolve('dist');
+// Output folder: `dist` by default, or the one passed in (e.g. `node scripts/spa-fallback.mjs dist-next`).
+const dist = path.resolve(process.argv[2] || 'dist');
 const base = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');

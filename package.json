@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/spa-fallback.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:next": "vite build --outDir dist-next && node scripts/spa-fallback.mjs dist-next",
+    "preview:next": "vite preview --outDir dist-next --port 5181 --strictPort"
   },
   "dependencies": {
     "@react-three/fiber": "^8.18.0",
