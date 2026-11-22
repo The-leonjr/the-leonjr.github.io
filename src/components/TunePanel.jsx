@@ -16,6 +16,9 @@ const SLIDERS = [
     ['wetEdges', 'Wet edges', 0, 30, 0.5],
     ['rightBoost', 'Rose side boost', 0, 0.4, 0.01],
   ]],
+  ['Hint note', [
+    ['hintStyle', 'Style (1 ink, 2 paper tag)', 1, 2, 1],
+  ]],
   ['Orb ring', [
     ['ringTilt', 'Look down onto ring', 0, 0.9, 0.01],
     ['ringLean', 'Ring lean (+ = left side up)', -0.6, 0.6, 0.01],

@@ -38,6 +38,7 @@ export const DEFAULTS = {
   rightMain: '#ea7896',
   rightLight: '#f4d6de',
   rightDeep: '#93437c',
+  hintStyle: 1, // "turn the orb" note: 1 = dark ink with a cream halo, 2 = on a paper tag
 };
 
 export const tuneEnabled =
@@ -57,12 +58,20 @@ function load() {
 // One shared object. The water reads it every frame, the panel writes to it.
 export const params = load();
 
+// Parts of the page that aren't redrawn every frame (like the hint note) listen for changes here.
+const listeners = new Set();
+export function onTune(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
 export function save() {
   try {
     localStorage.setItem(KEY, JSON.stringify(params));
   } catch {
     /* storage blocked: settings just won't survive a reload */
   }
+  listeners.forEach((fn) => fn());
 }
 
 export function reset() {
@@ -72,4 +81,5 @@ export function reset() {
   } catch {
     /* ignore */
   }
+  listeners.forEach((fn) => fn());
 }

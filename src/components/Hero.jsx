@@ -1,8 +1,9 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { site, byId, sphereOrder } from '../data/projects.js';
 import { useReducedMotion, hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
+import { params, onTune } from '../tune.js';
 
 // three.js, ShaderGradient and the card sphere load after the text is on screen.
 const WaterBackground = lazy(() => import('./WaterBackground.jsx'));
@@ -24,6 +25,9 @@ export default function Hero() {
   const webgl = hasWebGL();
   const [active, setActive] = useState(null);
   const [turned, setTurned] = useState(false);
+  // The hint note's style can be switched live from the ?tune panel.
+  const [hintStyle, setHintStyle] = useState(params.hintStyle);
+  useEffect(() => onTune(() => setHintStyle(params.hintStyle)), []);
 
   return (
     <section className="hero" aria-labelledby="hero-title">
@@ -76,7 +80,7 @@ export default function Hero() {
       </nav>
 
       {webgl && (
-        <p className={`orb-hint${turned ? ' gone' : ''}`} aria-hidden="true">
+        <p className={`orb-hint ${hintStyle >= 2 ? 'tag' : 'ink'}${turned ? ' gone' : ''}`} aria-hidden="true">
           turn the orb <span>↺</span>
         </p>
       )}

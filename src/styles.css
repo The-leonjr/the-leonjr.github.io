@@ -151,7 +151,21 @@ button { font: inherit; }
   position: absolute; z-index: 4; left: 62%; top: max(88px, 10%); transform: translateX(-50%) rotate(-3deg);
   font: 23px/1 var(--hand); color: var(--coral-ink); pointer-events: none; transition: opacity 0.8s;
 }
-.orb-hint span { display: inline-block; animation: sway 2.6s ease-in-out infinite; }
+.orb-hint span { display: inline-block; animation: sway 2.6s ease-in-out infinite; color: var(--coral-ink); }
+/* Style 1: dark ink with a soft cream halo, readable over green and pink water alike. */
+.orb-hint.ink {
+  color: var(--ink);
+  text-shadow: 0 0 4px var(--paper), 0 0 10px var(--paper), 0 0 18px rgba(244, 240, 231, 0.85);
+}
+/* Style 2: a small cream paper tag, pinned above the orb. */
+.orb-hint.tag {
+  color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 16px 7px; box-shadow: 0 8px 18px rgba(53, 43, 37, 0.16);
+}
+.orb-hint.tag::before {
+  content: ''; position: absolute; left: 50%; top: -5px; width: 9px; height: 9px; margin-left: -4px;
+  border-radius: 50%; background: var(--coral); box-shadow: 0 1px 2px rgba(53, 43, 37, 0.3);
+}
 .orb-hint.gone { opacity: 0; }
 @keyframes sway { 50% { transform: rotate(-35deg); } }
 @media (prefers-reduced-motion: reduce) { .orb-hint span { animation: none; } }
