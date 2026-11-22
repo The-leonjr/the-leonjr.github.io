@@ -83,23 +83,7 @@ const PATH_DOTS = 150; // dots in the orbit path
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 
-// Free orbits: each card's own little orbit (tilt, turn, speed, distance), spread out so they
-// don't bump into each other.
-const FREE = [
-  [0.0, 0.0, 1.0, 1.0],
-  [0.55, 0.9, 0.82, 1.08],
-  [-0.45, 2.1, 1.15, 0.96],
-  [0.3, 3.3, 0.9, 1.12],
-  [-0.6, 4.2, 1.05, 1.02],
-  [0.42, 5.3, 0.76, 0.94],
-].map(([tilt, turn, speed, dist]) => ({
-  q: new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, turn, 0, 'YXZ')),
-  speed,
-  dist,
-}));
-
 const ease = (k) => 1 - Math.pow(1 - k, 3);
-const smooth = (k) => k * k * (3 - 2 * k);
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // A card bent around the ring like a curved screen: its edges curve back toward the orb.
@@ -252,9 +236,6 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
     tipVel: 0, // tip momentum
     sys: new THREE.Quaternion(), // the whole orb-and-ring's tip, from dragging up and down
     last: 0,
-    lastInput: 0,
-    free: 0, // 0 = on the ring, 1 = drifting on their own orbits
-    freeT: 0,
   });
   const v = useMemo(
     () => ({
@@ -266,7 +247,6 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       orbQ: new THREE.Quaternion(),
       orbEuler: new THREE.Euler(),
       a: new THREE.Vector3(),
-      b: new THREE.Vector3(),
       out: new THREE.Vector3(),
       sysUp: new THREE.Vector3(),
       tint: new THREE.Color(),
@@ -321,14 +301,12 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       if (s.reveal >= 1 && Math.abs(s.target - s.theta) < 0.004 && Math.abs(s.omega) < 0.02) {
         s.phase = 'open';
         s.vel = 0;
-        s.lastInput = t;
       }
     } else if (focus >= 0) {
       // Keyboard focus: stand it upright and turn the ring until that card is at the front.
       const goal = s.theta + wrapAngle(-dir * focus * slot - s.theta);
       s.theta += (goal - s.theta) * Math.min(1, dt * 5);
       s.sys.slerp(v.identity, Math.min(1, dt * 4));
-      s.lastInput = t;
     } else if (d.down) {
       // Dragging sideways spins the ring; dragging up or down tips the whole orb and ring.
       s.theta += d.dx * 0.006;
@@ -336,32 +314,25 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       s.tipVel = d.dy * 0.005;
       s.sys.premultiply(v.tmpQ.setFromAxisAngle(X_AXIS, s.tipVel));
       d.dx = d.dy = 0;
-      s.lastInput = t;
     } else {
       // Let go: keep a little momentum, idle-spin, and slowly tip back upright.
       s.theta += s.vel;
       s.vel *= Math.pow(0.93, frames);
       s.sys.premultiply(v.tmpQ.setFromAxisAngle(X_AXIS, s.tipVel));
       s.tipVel *= Math.pow(0.9, frames);
-      if (!reduced && hovered === null) s.theta += dt * 0.12 * dir;
+      if (!reduced && hovered === null) s.theta += dt * params.cardOrbit * dir;
       if (params.settle > 0) s.sys.slerp(v.identity, 1 - Math.pow(1 - params.settle, frames));
     }
-
-    // Free orbits (optional, ?tune): after a pause the cards drift off the ring; any touch calls them back.
-    const wantFree =
-      params.freeOrbit >= 0.5 && s.phase === 'open' && !d.down && focus < 0 && t - s.lastInput > params.freeDelay;
-    s.free += ((wantFree ? 1 : 0) - s.free) * (1 - Math.exp(-dt * (wantFree ? 0.7 : 3)));
-    if (s.free > 0.001) s.freeT += dt * 0.25;
-    const f = smooth(Math.min(1, s.free));
 
     // The ring's tilt and lean come from the ?tune panel; the whole thing is then tipped by dragging.
     v.ringQ.setFromEuler(v.ringEuler.set(params.ringTilt, 0, params.ringLean, 'XYZ'));
     v.worldQ.copy(s.sys).multiply(v.ringQ);
     v.sysUp.copy(UP).applyQuaternion(v.worldQ);
 
-    // The orb turns with the ring, slowly on its own, and tips with it.
+    // The orb turns more slowly than the cards travel (orbFollow), drifts a little on its own, and tips
+    // with the ring, so the cards visibly move at their own pace around it.
     orb.mesh.scale.setScalar(ORB_R);
-    v.orbQ.setFromEuler(v.orbEuler.set(0.22, s.theta * 0.8 + (reduced ? 0 : t * 0.08), 0.12));
+    v.orbQ.setFromEuler(v.orbEuler.set(0.22, s.theta * params.orbFollow + (reduced ? 0 : t * 0.04), 0.12));
     orb.mesh.quaternion.copy(s.sys).multiply(v.orbQ);
 
     // Place the cards. While closed, the others wait inside the orb behind SKIP; opening fans them
@@ -372,12 +343,6 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       const a = s.theta + dir * i * slot * e;
       const grow = i === 0 ? 1 : 0.62 + 0.38 * e; // others rise out of the orb as they fan out
       v.a.set(Math.sin(a) * RING_RX * grow, 0, Math.cos(a) * RING_R * grow).applyQuaternion(v.worldQ);
-      if (f > 0) {
-        const o = FREE[i];
-        const b = a + s.freeT * o.speed * dir;
-        v.b.set(Math.sin(b), 0, Math.cos(b)).multiplyScalar(RING_R * o.dist).applyQuaternion(o.q).applyQuaternion(s.sys);
-        v.a.lerp(v.b, f);
-      }
       group.position.copy(v.a);
       // Cards stand upright (relative to the orb's tip) and face straight out from it, turning only
       // like a door on a hinge. Out front they face you; at the sides they go edge-on; round the
@@ -396,7 +361,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
       orb.setShadow(i, group.position, group.visible ? (i === 0 ? 1 : e) : 0);
     });
 
-    // The dotted orbit path travels with the cards, and fades while they drift off on their own.
+    // The dotted orbit path travels with the cards.
     const pos = path.dots.geometry.attributes.position;
     const marks = path.marks.geometry.attributes.position;
     for (let k = 0; k < PATH_DOTS; k++) {
@@ -407,7 +372,7 @@ function Sphere({ reduced, active, drag, hovered, setHovered, wrap, onTurn, open
     pos.needsUpdate = true;
     marks.needsUpdate = true;
     path.group.quaternion.copy(v.worldQ);
-    const pathAlpha = params.orbitPath * (1 - f * 0.8);
+    const pathAlpha = params.orbitPath;
     path.dots.material.opacity = pathAlpha;
     path.marks.material.opacity = pathAlpha * 0.9;
     path.group.visible = pathAlpha > 0.01;
