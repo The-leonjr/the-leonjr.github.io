@@ -15,17 +15,17 @@ export const DEFAULTS = {
   wisps: 0, // swirly tendrils inside the moving water (0 = off)
   swirls: 0.95, // a pair of curls left behind the cursor, like a wake (0 = off)
   sphereStir: 0.05,
-  ringTilt: 0.27, // how much we look down onto the ring of cards
+  ringTilt: 0.14, // how much we look down onto the ring of cards
   ringLean: 0.19, // the ring's lean: positive = left side up, right side down
   spinDir: 1, // which way the first turn and the fan-out go (1 or -1)
   restSpin: 0.09, // how fast SKIP travels round the orb before anyone touches it
   orbitPath: 0, // how visible the dotted orbit path is (0 = hidden)
   settle: 0.01, // how quickly the orb tips back upright after you let go (0 = stays put)
   cardOrbit: 0.2, // how fast the cards travel round the ring on their own once it's open
-  orbFollow: 0.45, // how much the orb turns along with the cards (lower = orb turns slower than them)
+  orbFollow: 0.28, // how much the orb turns along with the cards (lower = orb turns slower than them)
   freeOrbit: 0, // 1 = after a pause, cards slowly stray off the ring onto their own paths
   freeDelay: 4, // seconds of stillness before they start straying
-  freeStray: 1, // how far they stray above and below the ring // how much spinning the card sphere drags the water around it (0 = off)
+  freeStray: 0.4, // how far they stray above and below the ring // how much spinning the card sphere drags the water around it (0 = off)
   granules: 0.75, // darker pigment specks that appear as dragged colour dries back (0 = off)
   rightBoost: 0.4, // extra pigment on the rose side
   fadeStart: 0.3, // where the fade begins, as a share of the hero height above its bottom edge
