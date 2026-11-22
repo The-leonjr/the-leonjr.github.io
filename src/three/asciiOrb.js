@@ -38,8 +38,20 @@ const frag = /* glsl */ `
   uniform vec3 uLightView;  // light direction in view space, for the smooth paper shading
   uniform vec3 uInkLight, uInkDark, uGlint, uPaperLit, uPaperShade;
   uniform float uPaperAlpha;
+  uniform vec4 uShadow[6]; // where each project card's shadow falls (direction) and how dark (w)
 
   const float PI = 3.14159265;
+
+  // Soft round shadows cast by the project cards onto the ball.
+  float cardShadow(vec3 n) {
+    float s = 0.0;
+    for (int i = 0; i < 6; i++) {
+      vec4 k = uShadow[i];
+      if (k.w <= 0.0) continue;
+      s = max(s, smoothstep(0.9, 0.985, dot(n, k.xyz)) * k.w);
+    }
+    return s;
+  }
 
   float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
   float noise(vec3 p) {
@@ -81,6 +93,8 @@ const frag = /* glsl */ `
 
     float light = 0.05 + 0.95 * diff + bounce;
     float ink = clamp(0.1 + (1.0 - light) * 0.9 + bands * 0.24 + rim * 0.25, 0.14, 1.0);
+    // Under a card's shadow the characters get denser, as if less light reaches that patch.
+    ink = clamp(ink + cardShadow(N) * 0.45, 0.14, 1.0);
     bool glint = spec > 0.5;
     float index = glint ? 8.0 : floor(clamp(ink, 0.0, 0.999) * uCount);
 
@@ -97,6 +111,7 @@ const frag = /* glsl */ `
     float pixLight = max(dot(Nv, normalize(uLightView)), 0.0);
     float facing = max(dot(Nv, normalize(-vViewPos)), 0.0);
     vec3 paper = mix(uPaperShade, uPaperLit, smoothstep(0.0, 0.85, pixLight));
+    paper *= 1.0 - cardShadow(P) * 0.16;
     float paperA = uPaperAlpha * smoothstep(0.0, 0.5, facing);
     gl_FragColor = vec4(mix(paper, inkCol, a), max(paperA, a * smoothstep(0.0, 0.15, facing)));
   }
@@ -148,6 +163,7 @@ export function createAsciiOrb({
     uPaperLit: { value: rgb(paperLit) },
     uPaperShade: { value: rgb(paperShade) },
     uPaperAlpha: { value: 0.93 },
+    uShadow: { value: Array.from({ length: 6 }, () => new THREE.Vector4()) },
   };
   const material = new THREE.ShaderMaterial({
     vertexShader: vert,
@@ -175,7 +191,7 @@ export function createAsciiOrb({
   })();
   const shadow = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthTest: false, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }),
   );
   shadow.renderOrder = -2;
 
@@ -186,6 +202,8 @@ export function createAsciiOrb({
   const tmpQ = new THREE.Quaternion();
   const size = new THREE.Vector2();
   const world = new THREE.Vector3();
+  const casters = Array.from({ length: 6 }, () => ({ pos: new THREE.Vector3(), s: 0 }));
+  const lightWorld = new THREE.Vector3();
 
   return {
     /** Add this to a scene. */
@@ -195,6 +213,12 @@ export function createAsciiOrb({
     /** Roughly how big one character should be on screen, in CSS pixels. */
     setCellSize(px) {
       cellPx = px;
+    },
+    /** A project card at this world position casts a shadow of this strength (0 = none) on the orb. */
+    setShadow(i, worldPos, strength) {
+      if (!casters[i]) return;
+      casters[i].pos.copy(worldPos);
+      casters[i].s = strength;
     },
     /** Call once per frame before rendering. Returns the orb's radius on screen, in pixels. */
     update(renderer, camera, time) {
@@ -206,6 +230,15 @@ export function createAsciiOrb({
       uniforms.uLightObj.value.copy(LIGHT).applyQuaternion(camera.quaternion).applyQuaternion(tmpQ).normalize();
       uniforms.uCamObj.value.copy(camera.position);
       mesh.worldToLocal(uniforms.uCamObj.value);
+      // Each card's shadow lands on the orb a little away from the light.
+      lightWorld.copy(LIGHT).applyQuaternion(camera.quaternion);
+      casters.forEach((c, i) => {
+        const slotV = uniforms.uShadow.value[i];
+        if (c.s <= 0) return slotV.set(0, 0, 0, 0);
+        world.copy(c.pos).addScaledVector(lightWorld, -0.9 * mesh.scale.x);
+        mesh.worldToLocal(world).normalize();
+        slotV.set(world.x, world.y, world.z, c.s);
+      });
       // Pick the number of rows so a character is about cellPx tall where it faces you.
       renderer.getSize(size);
       const dist = camera.position.distanceTo(mesh.getWorldPosition(world));

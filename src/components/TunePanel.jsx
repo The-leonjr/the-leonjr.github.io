@@ -16,6 +16,11 @@ const SLIDERS = [
     ['wetEdges', 'Wet edges', 0, 30, 0.5],
     ['rightBoost', 'Rose side boost', 0, 0.4, 0.01],
   ]],
+  ['Orb ring', [
+    ['ringTilt', 'Look down onto ring', 0, 0.9, 0.01],
+    ['ringLean', 'Ring lean (+ = left side up)', -0.6, 0.6, 0.01],
+    ['spinDir', 'First turn direction (-1 or 1)', -1, 1, 2],
+  ]],
   ['Fade into the page', [
     ['fadeStart', 'Fade starts (share of hero)', 0, 0.6, 0.01],
     ['fadeTail', 'Reaches below hero (share of gap)', 0, 1, 0.01],
