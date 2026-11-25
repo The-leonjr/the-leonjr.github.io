@@ -4,7 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
 import { useInView } from '../hooks.js';
 import { params } from '../tune.js';
-import { sphereStir } from '../stir.js';
+import { sphereStir, waterPokes } from '../stir.js';
 
 // How it works, in three layers:
 // 1. ShaderGradient draws the slow, flowing water shapes. Its three colours are set to pure red,
@@ -219,6 +219,7 @@ function WaterPass({ reduced, pointer, wrap }) {
   const detail = useRef(0);
   const vortices = useRef([]); // each: { x, y, s, r, age }
   const lastSpawn = useRef(0);
+  const seenSplash = useRef(waterPokes.splashes);
 
   const res = useMemo(() => {
     const quad = new THREE.PlaneGeometry(2, 2);
@@ -357,16 +358,34 @@ function WaterPass({ reduced, pointer, wrap }) {
       list.push({ x: s.x - mx * back + my * side, y: s.y - my * back - mx * side, s: -strength, r, age: 0 });
       while (list.length > 8) list.shift();
     }
-    const life = 1.2;
+    // "Make a mess" (play panel): four big swirl pairs at random spots, lasting a bit longer.
+    if (waterPokes.splashes !== seenSplash.current) {
+      seenSplash.current = waterPokes.splashes;
+      if (!reduced) {
+        list.length = 0;
+        for (let n = 0; n < 4; n++) {
+          const x = 0.12 + Math.random() * 0.76;
+          const y = 0.3 + Math.random() * 0.55;
+          const r = 0.07 + Math.random() * 0.07;
+          const strength = (0.03 + Math.random() * 0.02) / r;
+          const a = Math.random() * Math.PI * 2; // the pair sits side by side at a random angle
+          const ox = Math.cos(a) * r * 0.6;
+          const oy = Math.sin(a) * r * 0.6;
+          list.push({ x: x + ox, y: y + oy, s: strength, r, age: 0, life: 2.5 });
+          list.push({ x: x - ox, y: y - oy, s: -strength, r, age: 0, life: 2.5 });
+        }
+      }
+    }
+    const life = 1.2; // how long a wake curl lasts, unless it says otherwise
     for (let i = list.length - 1; i >= 0; i--) {
       list[i].age += dt;
-      if (list[i].age > life) list.splice(i, 1);
+      if (list[i].age > (list[i].life || life)) list.splice(i, 1);
     }
     const slots = res.velMat.uniforms.uVort.value;
     slots.forEach((slot, i) => {
       const k = list[i];
       if (!k) return slot.set(0, 0, 0, 1);
-      const fade = (1 - k.age / life) ** 2;
+      const fade = (1 - k.age / (k.life || life)) ** 2;
       slot.set(k.x, k.y, k.s * fade * frames, k.r);
     });
     res.velMat.uniforms.uTime.value = state.clock.elapsedTime;

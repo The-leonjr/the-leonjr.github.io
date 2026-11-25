@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { site, byId, sphereOrder } from '../data/projects.js';
 import { useReducedMotion, hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
-import { params, onTune } from '../tune.js';
+import { params, onTune, tuneEnabled } from '../tune.js';
+import PlayPanel from './PlayPanel.jsx';
 
 // three.js, ShaderGradient and the card sphere load after the text is on screen.
 const WaterBackground = lazy(() => import('./WaterBackground.jsx'));
@@ -78,6 +79,9 @@ export default function Hero() {
           </Link>
         ))}
       </nav>
+
+      {/* Visitors get the small play panel; the full slider panel stays behind ?tune. */}
+      {webgl && !tuneEnabled && <PlayPanel reduced={reduced} />}
 
       {webgl && (
         <p className={`orb-hint ${hintStyle >= 2 ? 'tag' : 'ink'}${turned ? ' gone' : ''}`} aria-hidden="true">

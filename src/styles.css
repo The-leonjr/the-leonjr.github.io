@@ -193,6 +193,25 @@ button { font: inherit; }
   transform: translateX(calc(var(--i) * 70%)) rotate(calc(var(--i) * 6deg));
 }
 
+/* "Play with the water": a button in the hero's bottom-right corner that opens a small panel above it. */
+.play { position: absolute; right: var(--gutter); bottom: 28px; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.play-toggle { background: rgba(244, 240, 231, 0.75); backdrop-filter: blur(6px); }
+.play-panel {
+  width: 240px; padding: 16px 18px; display: grid; gap: 6px;
+  background: rgba(248, 243, 233, 0.94); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 14px 30px rgba(53, 43, 37, 0.14);
+}
+.play-label { font-size: 13px; font-weight: 600; color: var(--teal-ink); margin-top: 4px; }
+.play-swatches { display: flex; gap: 10px; }
+.play-swatch {
+  width: 34px; height: 34px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 2px solid var(--paper); box-shadow: 0 0 0 1px var(--line);
+  background: linear-gradient(135deg, var(--a) 50%, var(--b) 50%);
+}
+.play-swatch[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--ink); }
+.play-panel input[type='range'] { width: 100%; accent-color: var(--teal-ink); }
+.play-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+
 /* ---------- Sections ---------- */
 .section { max-width: var(--max); margin: 0 auto; padding: clamp(72px, 10vw, 128px) var(--gutter); }
 .section-inner { width: min(1120px, calc(100% - 2 * var(--gutter))); margin-inline: auto; }
@@ -468,6 +487,7 @@ main:has(#about) + .finale { margin-top: 0; border-top: 0; padding-top: clamp(32
   .hero-copy h1 { font-size: clamp(44px, 13vw, 64px); }
   .sphere, .static-fan { position: relative; inset: auto; order: 2; height: 46svh; min-height: 330px; }
   .sphere, .static-fan { order: 3; }
+  .play { position: relative; right: auto; bottom: auto; order: 4; align-self: flex-end; margin: 0 var(--gutter) 16px; }
   .orb-hint { position: relative; left: auto; top: auto; order: 2; transform: rotate(-3deg); align-self: center; margin: 22px 0 0; }
   .pair, .pair.has-lead { grid-template-columns: 1fr; }
   .site-header nav { gap: 14px; padding: 0 12px; }

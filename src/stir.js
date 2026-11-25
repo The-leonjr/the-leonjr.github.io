@@ -9,3 +9,9 @@ export const sphereStir = {
   dy: 0,
   live: false, // false when the sphere isn't on screen
 };
+
+// The play panel's "Make a mess" button bumps this number; the water notices the change on its
+// next frame and drops a handful of big swirls into itself.
+export const waterPokes = {
+  splashes: 0,
+};
