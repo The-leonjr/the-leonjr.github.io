@@ -188,6 +188,8 @@ function target(w, h) {
   });
 }
 
+const STEP = 1 / 60; // the water always moves in steps of this many seconds
+
 const setHex = (vec, h) => vec.set(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
 
 // Copies the live settings (src/tune.js) into the shaders. Cheap enough to do every frame.
@@ -220,6 +222,7 @@ function WaterPass({ reduced, pointer, wrap }) {
   const vortices = useRef([]); // each: { x, y, s, r, age }
   const lastSpawn = useRef(0);
   const seenSplash = useRef(waterPokes.splashes);
+  const owed = useRef(0); // water time not simulated yet, in seconds
 
   const res = useMemo(() => {
     const quad = new THREE.PlaneGeometry(2, 2);
@@ -310,16 +313,15 @@ function WaterPass({ reduced, pointer, wrap }) {
     [res],
   );
 
-  useFrame((state, delta) => {
-    const dt = Math.min(delta, 1 / 20);
-    const frames = dt * 60;
-    if (params.detail !== detail.current) resize();
-    applySettings(res);
-
-    // Where the "hand in the water" is. It trails behind the real cursor.
+  // One step of the water: move the "hand", add swirls, stir the velocity, carry the dye.
+  // It always advances exactly STEP seconds, so the water looks the same on a 60 Hz screen and a
+  // 120 Hz one (with one step per screen frame, faster screens used to get weaker swirls).
+  const step = (time) => {
     const s = stir.current;
     const p = pointer.current;
-    s.t += dt;
+    s.t += STEP;
+
+    // Where the "hand in the water" is. It trails behind the real cursor.
     let tx = p.x;
     let ty = p.y;
     let gain = 1;
@@ -330,17 +332,12 @@ function WaterPass({ reduced, pointer, wrap }) {
       ty = 0.55 + Math.sin(s.t * 0.23) * 0.25;
       gain = 0.35;
     }
-    const k = 1 - Math.pow(1 - params.cursorLag, frames);
     s.px = s.x;
     s.py = s.y;
-    s.x += (tx - s.x) * k;
-    s.y += (ty - s.y) * k;
+    s.x += (tx - s.x) * params.cursorLag;
+    s.y += (ty - s.y) * params.cursorLag;
     const vx = reduced ? 0 : (s.x - s.px) * gain;
     const vy = reduced ? 0 : (s.y - s.py) * gain;
-
-    // 1. ShaderGradient's flowing shapes into a texture.
-    gl.setRenderTarget(res.grad);
-    gl.render(scene, camera);
 
     // Drop a pair of wake curls behind the cursor while it moves (Swirls slider).
     const speed = Math.hypot(vx, vy);
@@ -378,7 +375,7 @@ function WaterPass({ reduced, pointer, wrap }) {
     }
     const life = 1.2; // how long a wake curl lasts, unless it says otherwise
     for (let i = list.length - 1; i >= 0; i--) {
-      list[i].age += dt;
+      list[i].age += STEP;
       if (list[i].age > (list[i].life || life)) list.splice(i, 1);
     }
     const slots = res.velMat.uniforms.uVort.value;
@@ -386,9 +383,38 @@ function WaterPass({ reduced, pointer, wrap }) {
       const k = list[i];
       if (!k) return slot.set(0, 0, 0, 1);
       const fade = (1 - k.age / (k.life || life)) ** 2;
-      slot.set(k.x, k.y, k.s * fade * frames, k.r);
+      slot.set(k.x, k.y, k.s * fade, k.r);
     });
-    res.velMat.uniforms.uTime.value = state.clock.elapsedTime;
+
+    // Stir the velocity field.
+    res.velMat.uniforms.uTime.value = time;
+    res.velMat.uniforms.uPrev.value = res.vel[0].texture;
+    res.velMat.uniforms.uMouse.value.set(s.x, s.y);
+    res.velMat.uniforms.uVel.value.set(vx, vy);
+    res.velMat.uniforms.uDecay.value = params.stirLife;
+    gl.setRenderTarget(res.vel[1]);
+    gl.render(res.velScene, res.cam);
+    res.vel.reverse();
+
+    // Carry the dye along and let it relax toward the base.
+    res.dyeMat.uniforms.uDye.value = res.dye[0].texture;
+    res.dyeMat.uniforms.uVel.value = res.vel[0].texture;
+    res.dyeMat.uniforms.uGrad.value = res.grad.texture;
+    res.dyeMat.uniforms.uTime.value = time;
+    res.dyeMat.uniforms.uRelax.value = first.current || reduced ? 1 : params.linger;
+    first.current = false;
+    gl.setRenderTarget(res.dye[1]);
+    gl.render(res.dyeScene, res.cam);
+    res.dye.reverse();
+  };
+
+  useFrame((state, delta) => {
+    if (params.detail !== detail.current) resize();
+    applySettings(res);
+
+    // 1. ShaderGradient's flowing shapes into a texture.
+    gl.setRenderTarget(res.grad);
+    gl.render(scene, camera);
 
     // The canvas runs past the hero by the tail, so work out where the fade starts on it.
     const hero = wrap.current?.parentElement;
@@ -403,6 +429,7 @@ function WaterPass({ reduced, pointer, wrap }) {
     }
 
     // Read the card sphere's spin (src/stir.js) and turn it into a current around it.
+    // The sphere reports how far it moved this screen frame; rescale that to one water step.
     const box = wrap.current?.getBoundingClientRect();
     const sv = res.velMat.uniforms.uSphereVel.value;
     if (box && sphereStir.live && !reduced && params.sphereStir > 0) {
@@ -412,8 +439,7 @@ function WaterPass({ reduced, pointer, wrap }) {
         Math.max(0.02, sphereStir.radius / box.height),
         0,
       );
-      // Spin is per frame already; scale it into the same units as the cursor's stir.
-      const k = params.sphereStir * 0.35;
+      const k = params.sphereStir * 0.35 * (STEP / Math.max(delta, 1 / 240));
       sv.set(
         THREE.MathUtils.clamp((sphereStir.dx / box.width) * k, -0.02, 0.02),
         THREE.MathUtils.clamp((-sphereStir.dy / box.height) * k, -0.02, 0.02),
@@ -422,27 +448,19 @@ function WaterPass({ reduced, pointer, wrap }) {
       sv.set(0, 0);
     }
 
-    // 2. Stir the velocity field.
-    res.velMat.uniforms.uPrev.value = res.vel[0].texture;
-    res.velMat.uniforms.uMouse.value.set(s.x, s.y);
-    res.velMat.uniforms.uVel.value.set(vx, vy);
-    res.velMat.uniforms.uDecay.value = Math.pow(params.stirLife, frames);
-    gl.setRenderTarget(res.vel[1]);
-    gl.render(res.velScene, res.cam);
-    res.vel.reverse();
+    // 2. Move the water in fixed steps: none on some frames of a fast screen, two at most on a
+    // slow one (anything further behind is dropped rather than piling up).
+    if (first.current) owed.current = Math.max(owed.current, STEP);
+    owed.current += Math.min(delta, 0.25);
+    let steps = 0;
+    while (owed.current >= STEP && steps < 2) {
+      step(state.clock.elapsedTime);
+      owed.current -= STEP;
+      steps += 1;
+    }
+    if (steps === 2) owed.current = Math.min(owed.current, STEP);
 
-    // 3. Carry the dye along and let it relax toward the base.
-    res.dyeMat.uniforms.uDye.value = res.dye[0].texture;
-    res.dyeMat.uniforms.uVel.value = res.vel[0].texture;
-    res.dyeMat.uniforms.uGrad.value = res.grad.texture;
-    res.dyeMat.uniforms.uTime.value = state.clock.elapsedTime;
-    res.dyeMat.uniforms.uRelax.value = first.current || reduced ? 1 : 1 - Math.pow(1 - params.linger, frames);
-    first.current = false;
-    gl.setRenderTarget(res.dye[1]);
-    gl.render(res.dyeScene, res.cam);
-    res.dye.reverse();
-
-    // 4. Paint it on screen.
+    // 3. Paint it on screen.
     res.compMat.uniforms.uDye.value = res.dye[0].texture;
     res.compMat.uniforms.uVel.value = res.vel[0].texture;
     res.compMat.uniforms.uTime.value = state.clock.elapsedTime;
