@@ -77,8 +77,11 @@ export default function Footer() {
             even when the stickers have been spread up the page. */}
         <p className="finale-contact">
           <a className="text-link" href={`mailto:${site.email}`}>Email</a>
+          <span className="sep" aria-hidden="true">·</span>
           <a className="text-link" href={site.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn (opens in a new tab)">LinkedIn</a>
+          <span className="sep" aria-hidden="true">·</span>
           <a className="text-link" href={site.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+          <span className="sep" aria-hidden="true">·</span>
           <button type="button" className="text-link" onClick={copy}>Copy email</button>
           <span className="copy-status" role="status">{copyStatus}</span>
         </p>

@@ -9,7 +9,7 @@ const DRAG_START = 7; // pixels the mouse must move before a press becomes a dra
 const EDGE = 80; // pointer this close to the top or bottom of the window scrolls the page while dragging
 const EDGE_SPEED = 16; // fastest edge scroll, in pixels per frame
 // Writing a sticker may not be dropped on. Dropping it there sends it back to its last free spot.
-const NO_DROP = '#about-title, .about-text p, .toolkit, .finale h2 span, .finale-sub, .availability, .finale-contact, .finale-base';
+const NO_DROP = '#about-title, .about-text p, .toolkit, .hackathons, .finale h2 span, .finale-sub, .availability, .finale-contact, .finale-base';
 
 export function setUpStickerBoard(footer, layer) {
   const stickers = [...layer.querySelectorAll('.sticker')];

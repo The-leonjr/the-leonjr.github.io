@@ -263,6 +263,7 @@ button { font: inherit; }
   display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: clamp(32px, 5vw, 72px); align-items: center;
 }
+.about .ascii-frame { grid-column: 2; grid-row: 1; }
 .ascii-frame {
   position: relative; aspect-ratio: 1; max-width: 480px; width: 100%;
   background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
@@ -278,6 +279,19 @@ button { font: inherit; }
 .toolkit div { border-top: 1px solid var(--line); padding-top: 10px; }
 .toolkit dt { font-size: 15px; font-weight: 600; color: var(--teal-ink); }
 .toolkit dd { margin: 4px 0 0; font-size: 16px; color: var(--ink); }
+
+/* Hackathons: a short list under the skills, in the text column only. */
+.hackathons { grid-column: 1; grid-row: 2; max-width: 680px; }
+.hackathons h3 { font: 600 15px/1.3 var(--body); color: var(--teal-ink); margin-bottom: 8px; }
+.hackathons ol { list-style: none; margin: 0; padding: 0; }
+.hackathons li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 4px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.hackathons li:last-child { border-bottom: 1px solid var(--line); }
+.hack-date { font-size: 14px; color: var(--muted); padding-top: 2px; }
+.hack-name { font: 600 18px/1.3 var(--display); color: var(--ink); }
+.hack-by { display: inline-block; font: 400 14px var(--body); color: var(--muted); margin-left: 6px; white-space: nowrap; } /* the organiser moves down as one piece instead of breaking */
+.hack-result { margin-top: 2px; font-size: 14px; font-weight: 600; color: var(--coral-ink); }
+.hack-line { margin-top: 4px; font-size: 15px; line-height: 1.55; color: var(--ink); }
+.hack-line a { white-space: nowrap; font-weight: 600; text-underline-offset: 3px; }
 
 /* Your one-line intro under "Selected work." */
 .section-sub { margin-top: 10px; font: 500 clamp(19px, 1.8vw, 24px)/1.4 var(--display); color: var(--muted); }
@@ -303,9 +317,18 @@ main:has(#about) + .finale { margin-top: 0; border-top: 0; padding-top: clamp(32
 .finale h2 span + span { color: var(--teal); }
 .finale-sub { max-width: 36ch; margin-top: 16px; font-size: clamp(17px, 1.5vw, 20px); color: var(--muted); }
 /* Email · LinkedIn · GitHub · Copy email, the always-visible way to get in touch. */
-.finale-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 10px; width: fit-content; max-width: 100%; }
+.finale-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 10px; width: fit-content; max-width: 100%; }
 .finale-contact .text-link { font-size: 16px; }
-.finale-contact .text-link + .text-link::before { content: '·'; display: inline-block; margin-right: 8px; color: var(--muted); text-decoration: none; }
+.finale-contact .sep { margin: 0 6px; color: var(--muted); }
+/* A small hop on hover so it's clear which link you're on. Mouse only; keyboard focus gets the outline. */
+.finale-contact .text-link { transition: transform 160ms ease, color 160ms ease; }
+@media (hover: hover) and (pointer: fine) {
+  .finale-contact .text-link:hover { transform: translateY(-3px); color: var(--ink); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .finale-contact .text-link { transition: none; }
+  .finale-contact .text-link:hover { transform: none; }
+}
 .finale .availability { margin-top: 12px; font: 500 18px/1.4 var(--display); color: var(--wine); }
 .finale .availability::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--coral); vertical-align: 2px; }
 
@@ -452,6 +475,8 @@ main:has(#about) + .finale { margin-top: 0; border-top: 0; padding-top: clamp(32
   .evidence-pair .arrow { justify-self: center; transform: rotate(90deg); }
   .about:has(.ascii-frame) { grid-template-columns: 1fr; }
   .about .ascii-frame { max-width: 320px; }
+  .about .ascii-frame, .hackathons { grid-column: auto; grid-row: auto; } /* one column: text, hackathons, orb */
+  .hackathons li { grid-template-columns: 1fr; }
   .next-project { grid-template-columns: 1fr 1fr; }
   .next-project .all { display: none; }
   .static-fan img { width: 38vw; }

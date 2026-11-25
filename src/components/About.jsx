@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
-import { toolkit } from '../data/projects.js';
+import { toolkit, hackathons } from '../data/projects.js';
 import { hasWebGL } from '../hooks.js';
 import SafeBoundary from './SafeBoundary.jsx';
 
@@ -25,6 +25,31 @@ export default function About() {
           ))}
         </dl>
       </div>
+      {/* Below the text only (not under the orb), so the orb and the stickers around it stay put. */}
+      <section className="hackathons" aria-labelledby="hackathons-title">
+        <h3 id="hackathons-title">Hackathons</h3>
+        <ol>
+          {hackathons.map((h) => (
+            <li key={h.event}>
+              <span className="hack-date">{h.date}</span>
+              <div>
+                <p className="hack-name">
+                  {h.event} <span className="hack-by">{h.by}</span>
+                </p>
+                {h.result && <p className="hack-result">{h.result}</p>}
+                <p className="hack-line">
+                  {h.line}{' '}
+                  {h.link.to ? (
+                    <Link to={h.link.to}>{h.link.label}</Link>
+                  ) : (
+                    <a href={h.link.href} target="_blank" rel="noopener noreferrer">{h.link.label} ↗</a>
+                  )}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
       {hasWebGL() && (
         <SafeBoundary>
           <Suspense fallback={null}>

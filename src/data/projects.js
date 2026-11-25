@@ -58,7 +58,7 @@ export const projects = [
     primary: { label: 'Play SKIP', href: 'https://hannannoor.itch.io/skip' },
     source: 'https://github.com/The-leonjr/schoolprojectss/tree/main/SKIP_final',
     tech: ['JavaScript', 'Canvas', 'HTML and CSS', 'Narrative design'],
-    credits: 'Made with Hannan Noor and Lucas for an anti-drug game jam. The source credits AI-assisted creation.',
+    credits: 'Made with Hannan Noor and Lucas in one day at Anti-Drug Jam 2026 (SCOGA × NCADA). The source credits AI-assisted creation.',
     role: null,
     result: null,
     media: null,
@@ -240,6 +240,35 @@ export const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
 // orb is turned for the first time; the other five fan out from behind it.
 export const featured = 'skip';
 export const sphereOrder = ['skip', 'memematch', 'analysets', 'aurafarm', 'salarycalc', 'animal-adoption'];
+
+// Hackathons, shown as a short list in About (newest first). `link.to` is a page on this site,
+// `link.href` is anywhere else. `result` is optional.
+export const hackathons = [
+  {
+    date: 'Nov 2026',
+    event: 'More than a Hack 2027',
+    by: 'Metrica Sports × FC Barcelona',
+    result: '134th of 759',
+    line: 'Two-person team. A model that reads the tracking data of a LaLiga match and calls, frame by frame, which team has the ball.',
+    link: { label: 'Code', href: 'https://github.com/hannannoor/messis-foot' },
+  },
+  {
+    date: 'Sep 2026',
+    event: 'Anti-Drug Jam 2026',
+    by: 'SCOGA × NCADA',
+    result: null,
+    line: 'A one-day vibe-coding jam: build something interactive that gets young people talking about drugs. Our team of three made SKIP.',
+    link: { label: 'Case study', to: '/work/skip' },
+  },
+  {
+    date: 'Mar 2026',
+    event: 'Hack to the Future',
+    by: 'TrustedHub × Temasek Polytechnic',
+    result: 'Champion · Special mention for new business model',
+    line: "Two-person team. Our AI CEO grew a simulated insurer from SGD 500K to SGD 304M. Over dozens of failed runs I found the loophole that won it: approve every claim but pay out 5%, and customers stayed happy. A quirk of the simulator, not real life.",
+    link: { label: 'Slides (PDF)', href: '/files/goon-underwriters-slides.pdf' },
+  },
+];
 
 export const toolkit = [
   ['Web and cloud', 'JavaScript, Node.js, Express, MySQL, AWS'],
